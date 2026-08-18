@@ -72,6 +72,7 @@
             <th scope="col">優先順位</th>
             <th scope="col">タスク名</th>
             <th scope="col">所要時間（分）</th>
+            <th scope="col">週間表へ追加</th>
           </tr>
         </thead>
         <tbody id="schedule-body"></tbody>
@@ -121,24 +122,42 @@
     <p class="empty" id="board-status" role="status" aria-live="polite"></p>
   </section>
 
-  <!-- テキスト出力 -->
-  <section class="panel wide" aria-labelledby="export-heading">
+  <!-- Excel出力・取り込み -->
+  <section class="panel wide" aria-labelledby="excel-heading">
     <div class="panel-head">
-      <h2 id="export-heading">テキスト出力</h2>
+      <h2 id="excel-heading">Excel出力・取り込み</h2>
       <div class="export-actions">
         <div class="export-range" role="radiogroup" aria-label="出力範囲">
           <label><input type="radio" name="export-range" value="day" checked> 日単位</label>
           <label><input type="radio" name="export-range" value="week"> 週単位</label>
         </div>
         <select id="export-day" aria-label="出力する日"></select>
-        <button type="button" class="btn ghost" id="copy-btn">コピー</button>
-        <button type="button" class="btn ghost" id="download-btn">.txt をダウンロード</button>
+        <button type="button" class="btn primary" id="download-btn">Excel（.xlsx）を出力</button>
+        <label class="btn ghost file-btn" for="import-file">Excelを取り込む</label>
+        <input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
       </div>
     </div>
-    <textarea id="export-text" class="export-text" rows="14" readonly
-      aria-label="スケジュールのテキスト出力"></textarea>
+    <p class="empty">出力した Excel はそのまま取り込めます。取り込むと、現在のタスクと予定はファイルの内容に置き換わります。</p>
+    <div class="table-scroll">
+      <table class="schedule preview" id="export-preview">
+        <thead>
+          <tr>
+            <th scope="col">種別</th>
+            <th scope="col">曜日</th>
+            <th scope="col">日付</th>
+            <th scope="col">開始</th>
+            <th scope="col">終了</th>
+            <th scope="col">名称</th>
+            <th scope="col">優先順位</th>
+            <th scope="col">所要時間（分）</th>
+          </tr>
+        </thead>
+        <tbody id="export-body"></tbody>
+      </table>
+    </div>
     <p class="empty" id="export-status" role="status" aria-live="polite"></p>
   </section>
+
 </main>
 
 <!-- 優先順位の重複時に比較して選ぶダイアログ -->
@@ -154,6 +173,7 @@
   </div>
 </dialog>
 
+<script src="xlsx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

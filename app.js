@@ -44,11 +44,11 @@ const el = {
   eventDuration: document.getElementById('event-duration'),
   eventSubmit: document.getElementById('event-submit'),
   eventCancel: document.getElementById('event-cancel'),
-  exportText: document.getElementById('export-text'),
+  exportBody: document.getElementById('export-body'),
   exportStatus: document.getElementById('export-status'),
   exportDay: document.getElementById('export-day'),
-  copy: document.getElementById('copy-btn'),
   download: document.getElementById('download-btn'),
+  importFile: document.getElementById('import-file'),
   dialog: document.getElementById('conflict-dialog'),
   dialogMessage: document.getElementById('conflict-message'),
   chooseMoving: document.getElementById('choose-moving'),
@@ -554,7 +554,7 @@ function renderTable(plan) {
   if (tasks.length === 0) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.className = 'center';
     cell.textContent = 'タスクを追加するとスケジュールが表示されます。';
     row.append(cell);
@@ -577,7 +577,8 @@ function renderTable(plan) {
       makeCell(`${formatTime(last)} 〜 ${formatTime(DAY_END)}`, 'time'),
       makeCell('—'),
       makeCell('空き時間'),
-      makeCell(formatDuration(plan.freeMinutes), 'duration')
+      makeCell(formatDuration(plan.freeMinutes), 'duration'),
+      makeCell('')
     );
     el.scheduleBody.append(row);
   }
@@ -586,7 +587,7 @@ function renderTable(plan) {
     const head = document.createElement('tr');
     head.className = 'section-row';
     const cell = document.createElement('td');
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.textContent = '割り当てできなかったタスク（9:00〜18:00 に収まりません。優先順位か所要時間を見直してください）';
     head.append(cell);
     el.scheduleBody.append(head);
@@ -644,8 +645,45 @@ function makeTaskRow(task, timeLabel, unscheduled) {
     );
   }
 
-  row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell);
+  const addCell = document.createElement('td');
+  addCell.className = 'add-cell';
+  const daySelect = document.createElement('select');
+  daySelect.className = 'cell-select';
+  daySelect.setAttribute('aria-label', `${task.name} を追加する曜日`);
+  for (let day = 0; day < WEEK_LENGTH; day += 1) {
+    const option = document.createElement('option');
+    option.value = String(day);
+    option.textContent = dayLabel(day);
+    daySelect.append(option);
+  }
+  daySelect.value = String(task.placedAt ? task.placedAt.day : todayIndex());
+  addCell.append(
+    daySelect,
+    makeButton('追加', () => addTaskToDay(task.id, Number(daySelect.value)), `${task.name} を選んだ曜日に追加`)
+  );
+
+  row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell, addCell);
   return row;
+}
+
+/* 選んだ曜日の空いている時間に、自動スケジュールの時刻を優先して配置する */
+function addTaskToDay(id, day) {
+  const task = tasks.find((t) => t.id === id);
+  if (!task) return;
+
+  const entry = buildSchedule().scheduled.find((item) => item.task.id === id);
+  const preferred = entry ? snapToSlot(entry.start) : DAY_START;
+  const candidates = [preferred];
+  for (let start = DAY_START; start < DAY_END; start += SLOT) candidates.push(start);
+
+  const target = candidates.find((start) =>
+    placementIssue(task.name, 'task', id, day, start, task.duration) === null);
+
+  if (target === undefined) {
+    setBoardStatus(`${dayLabel(day)} には「${task.name}」（${formatDuration(task.duration)}）を置ける空き時間がありません。`);
+    return;
+  }
+  placeItem('task', id, day, target);
 }
 
 function makeNumberInput(options) {
@@ -959,10 +997,10 @@ function renderSummary(plan) {
   el.summary.append(dl);
 }
 
-/* ---------- テキスト出力 ---------- */
+/* ---------- Excel 出力・取り込み ---------- */
 
-const RULE = '='.repeat(44);
-const THIN_RULE = '-'.repeat(44);
+const EXPORT_HEADER = ['種別', '曜日', '日付', '開始', '終了', '名称', '優先順位', '所要時間（分）'];
+const EXPORT_WIDTHS = [8, 8, 12, 8, 8, 30, 10, 14];
 
 function exportRange() {
   const checked = document.querySelector('input[name="export-range"]:checked');
@@ -974,106 +1012,188 @@ function selectedDay() {
   return Number.isFinite(value) ? clamp(value, 0, WEEK_LENGTH - 1) : todayIndex();
 }
 
-function boardLine(item) {
-  const detail = item.kind === 'event'
-    ? `予定・${formatDuration(item.duration)}`
-    : `優先${item.priority}・${formatDuration(item.duration)}`;
-  return `${formatTime(item.start)}〜${formatTime(item.start + item.duration)}  ${item.name}  [${detail}]`;
-}
+/* 出力する行。週単位は1週間分＋未配置タスク、日単位はその日の分＋未配置タスク。 */
+function exportRows() {
+  const isWeek = exportRange() === 'week';
+  const day = selectedDay();
+  const items = isWeek ? boardItems() : boardItems(day);
 
-/* 日単位：自動スケジュール＋その日の週間スケジュール */
-function buildDayText(day) {
-  const plan = buildSchedule();
-  const lines = [];
-  lines.push(`${dayLabelLong(day)} のスケジュール（${formatTime(DAY_START)}〜${formatTime(DAY_END)}）`);
-  lines.push(RULE);
-  lines.push('');
-  lines.push('■ 自動スケジュール（優先順位順）');
+  const rows = items.map((item) => [
+    item.kind === 'event' ? '予定' : 'タスク',
+    WEEK_NAMES[item.day],
+    dayStamp(item.day),
+    formatTime(item.start),
+    formatTime(item.start + item.duration),
+    item.name,
+    item.kind === 'event' ? '' : item.priority,
+    item.duration,
+  ]);
 
-  if (plan.scheduled.length === 0) {
-    lines.push('タスクが登録されていません。');
-  } else {
-    plan.scheduled.forEach((entry) => {
-      lines.push(
-        `${formatTime(entry.start)}〜${formatTime(entry.end)}  ${entry.task.name}` +
-        `  [優先${entry.task.priority}・${formatDuration(entry.task.duration)}]`
-      );
+  tasks
+    .filter((task) => task.placedAt === null)
+    .forEach((task) => {
+      rows.push(['タスク', '', '', '', '', task.name, task.priority, task.duration]);
     });
-    if (plan.freeMinutes > 0) {
-      const last = plan.scheduled[plan.scheduled.length - 1].end;
-      lines.push(`${formatTime(last)}〜${formatTime(DAY_END)}  （空き時間）  [${formatDuration(plan.freeMinutes)}]`);
-    }
-  }
 
-  if (plan.unscheduled.length > 0) {
-    lines.push('');
-    lines.push('■ 割り当てできなかったタスク');
-    plan.unscheduled.forEach((task) => {
-      lines.push(`- ${task.name}  [優先${task.priority}・${formatDuration(task.duration)}]`);
-    });
-  }
-
-  const items = boardItems(day);
-  lines.push('');
-  lines.push('■ 週間スケジュールで固定したタスク・予定');
-  if (items.length === 0) {
-    lines.push('（この日に固定されたタスク・予定はありません）');
-  } else {
-    items.forEach((item) => lines.push(boardLine(item)));
-  }
-
-  const used = plan.scheduled.reduce((sum, entry) => sum + entry.task.duration, 0);
-  lines.push('');
-  lines.push(THIN_RULE);
-  lines.push(
-    `タスク ${tasks.length}件 / 割り当て ${plan.scheduled.length}件・${formatDuration(used)}` +
-    ` / 空き ${formatDuration(plan.freeMinutes)}` +
-    (plan.unscheduled.length ? ` / 未割り当て ${plan.unscheduled.length}件` : '')
-  );
-
-  return lines.join('\n');
-}
-
-/* 週単位：1週間分の週間スケジュール */
-function buildWeekText() {
-  const lines = [];
-  lines.push(`${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`);
-  lines.push(RULE);
-
-  let placedCount = 0;
-  for (let day = 0; day < WEEK_LENGTH; day += 1) {
-    const items = boardItems(day);
-    placedCount += items.length;
-    lines.push('');
-    lines.push(`■ ${dayLabelLong(day)}`);
-    if (items.length === 0) {
-      lines.push('（予定なし）');
-    } else {
-      items.forEach((item) => lines.push(boardLine(item)));
-    }
-  }
-
-  const unplaced = tasks.filter((task) => task.placedAt === null);
-  if (unplaced.length > 0) {
-    lines.push('');
-    lines.push('■ まだ週間スケジュールに置いていないタスク');
-    unplaced.forEach((task) => {
-      lines.push(`- ${task.name}  [優先${task.priority}・${formatDuration(task.duration)}]`);
-    });
-  }
-
-  lines.push('');
-  lines.push(THIN_RULE);
-  lines.push(`配置済み ${placedCount}件 / 未配置のタスク ${unplaced.length}件`);
-
-  return lines.join('\n');
+  return rows;
 }
 
 function renderExport() {
   const isWeek = exportRange() === 'week';
   el.exportDay.disabled = isWeek;
-  el.exportText.value = isWeek ? buildWeekText() : buildDayText(selectedDay());
-  setStatus('');
+
+  const rows = exportRows();
+  el.exportBody.textContent = '';
+
+  if (rows.length === 0) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = EXPORT_HEADER.length;
+    cell.className = 'center';
+    cell.textContent = '出力する内容がありません。タスクや予定を追加してください。';
+    row.append(cell);
+    el.exportBody.append(row);
+    return;
+  }
+
+  rows.forEach((cells) => {
+    const row = document.createElement('tr');
+    if (cells[1] === '') row.className = 'unplaced-row';
+    cells.forEach((value) => row.append(makeCell(value === '' ? '—' : String(value))));
+    el.exportBody.append(row);
+  });
+}
+
+function downloadWorkbook() {
+  const isWeek = exportRange() === 'week';
+  const sheetName = isWeek ? '週間スケジュール' : `${dayStamp(selectedDay())}`;
+  const title = isWeek
+    ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
+    : `${dayLabelLong(selectedDay())} のスケジュール`;
+
+  const rows = [[title], [], EXPORT_HEADER].concat(exportRows());
+  const blob = XLSX.build(sheetName, rows, EXPORT_WIDTHS);
+  const fileName = isWeek
+    ? `schedule-week-${dayStamp(0)}.xlsx`
+    : `schedule-${dayStamp(selectedDay())}.xlsx`;
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus(`${fileName} を出力しました。`);
+}
+
+/* 取り込み：出力した表と同じ見出しを探し、その下の行を読み込む */
+function parseRows(rows) {
+  const headerIndex = rows.findIndex((cells) => cells.includes('種別') && cells.includes('名称'));
+  if (headerIndex < 0) {
+    throw new Error('「種別」「名称」の見出しが見つかりません。このアプリで出力した Excel を選んでください。');
+  }
+
+  const header = rows[headerIndex];
+  const column = (label) => header.indexOf(label);
+  const columns = {
+    kind: column('種別'),
+    day: column('曜日'),
+    start: column('開始'),
+    name: column('名称'),
+    priority: column('優先順位'),
+    duration: column('所要時間（分）'),
+  };
+  if (columns.name < 0 || columns.duration < 0) {
+    throw new Error('「名称」または「所要時間（分）」の列が見つかりません。');
+  }
+
+  const importedTasks = [];
+  const importedEvents = [];
+  let skipped = 0;
+
+  rows.slice(headerIndex + 1).forEach((cells, index) => {
+    const value = (key) => (columns[key] >= 0 ? (cells[columns[key]] || '').trim() : '');
+    const name = value('name');
+    if (!name) return;
+
+    const duration = clamp(Number(value('duration')) || 0, 5, MAX_DURATION);
+    if (!Number.isFinite(duration) || duration < 5) {
+      skipped += 1;
+      return;
+    }
+
+    const dayName = value('day');
+    const dayIndex = WEEK_NAMES.indexOf(dayName.replace(/曜日?$/, ''));
+    const startText = value('start');
+    const startMatch = /^(\d{1,2}):(\d{2})$/.exec(startText);
+    const start = startMatch
+      ? snapToSlot(clamp(Number(startMatch[1]) * 60 + Number(startMatch[2]), DAY_START, DAY_END - SLOT))
+      : null;
+    const placed = dayIndex >= 0 && start !== null;
+
+    if (value('kind') === '予定') {
+      if (!placed) {
+        skipped += 1;
+        return;
+      }
+      importedEvents.push({
+        id: `event-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        day: dayIndex,
+        start,
+        duration,
+      });
+    } else {
+      importedTasks.push({
+        id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        priority: Number(value('priority')) || importedTasks.length + 1,
+        duration,
+        createdAt: Date.now() + index,
+        placedAt: placed ? { day: dayIndex, start } : null,
+      });
+    }
+  });
+
+  importedTasks.sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+  importedTasks.forEach((task, i) => { task.priority = i + 1; });
+
+  return { importedTasks, importedEvents, skipped };
+}
+
+async function importWorkbook(file) {
+  try {
+    const rows = await XLSX.parse(await file.arrayBuffer());
+    const { importedTasks, importedEvents, skipped } = parseRows(rows);
+
+    if (importedTasks.length === 0 && importedEvents.length === 0) {
+      setStatus('取り込める行がありませんでした。');
+      return;
+    }
+    const message = `現在のタスク（${tasks.length}件）と予定（${events.length}件）を、` +
+      `ファイルの内容（タスク ${importedTasks.length}件・予定 ${importedEvents.length}件）で置き換えます。よろしいですか？`;
+    if (!window.confirm(message)) {
+      setStatus('取り込みを中止しました。');
+      return;
+    }
+
+    tasks = importedTasks;
+    events = importedEvents;
+    renumber();
+    save();
+    saveEvents();
+    resetForm();
+    resetEventForm();
+    render();
+    setStatus(
+      `${file.name} を取り込みました（タスク ${importedTasks.length}件・予定 ${importedEvents.length}件）。` +
+      (skipped ? `${skipped}件は内容が不正なため読み飛ばしました。` : '')
+    );
+  } catch (error) {
+    setStatus(`取り込みに失敗しました：${error.message}`);
+  }
 }
 
 let statusTimer = 0;
@@ -1081,43 +1201,7 @@ let statusTimer = 0;
 function setStatus(message) {
   el.exportStatus.textContent = message;
   window.clearTimeout(statusTimer);
-  if (message) statusTimer = window.setTimeout(() => { el.exportStatus.textContent = ''; }, 3000);
-}
-
-async function copyText() {
-  const text = el.exportText.value;
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      /* file:// などクリップボードAPIが使えない環境向けのフォールバック */
-      el.exportText.select();
-      if (!document.execCommand('copy')) throw new Error('execCommand failed');
-      el.exportText.setSelectionRange(0, 0);
-    }
-    setStatus('クリップボードにコピーしました。');
-  } catch (e) {
-    el.exportText.select();
-    setStatus('コピーできませんでした。テキストを選択したので手動でコピーしてください。');
-  }
-}
-
-function downloadText() {
-  const name = exportRange() === 'week'
-    ? `schedule-week-${dayStamp(0)}.txt`
-    : `schedule-${dayStamp(selectedDay())}.txt`;
-
-  /* BOM 付きで保存し、Windows のテキストエディタでも文字化けしないようにする */
-  const blob = new Blob(['﻿' + el.exportText.value], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  setStatus(`${name} をダウンロードしました。`);
+  if (message) statusTimer = window.setTimeout(() => { el.exportStatus.textContent = ''; }, 6000);
 }
 
 /* ---------- 操作 ---------- */
@@ -1372,8 +1456,12 @@ el.clearPlacements.addEventListener('click', () => {
   setBoardStatus('すべての配置を解除しました。');
 });
 
-el.copy.addEventListener('click', copyText);
-el.download.addEventListener('click', downloadText);
+el.download.addEventListener('click', downloadWorkbook);
+el.importFile.addEventListener('change', () => {
+  const file = el.importFile.files && el.importFile.files[0];
+  if (file) importWorkbook(file);
+  el.importFile.value = '';     /* 同じファイルを続けて選べるようにする */
+});
 el.exportDay.addEventListener('change', renderExport);
 document.querySelectorAll('input[name="export-range"]').forEach((radio) => {
   radio.addEventListener('change', renderExport);

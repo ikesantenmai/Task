@@ -389,3 +389,22 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 .event-form input[type="text"] { background: var(--surface); }
 .event-actions { display: flex; gap: 8px; }
 .board td.drop-cell { cursor: pointer; }
+
+/* 曜日を選んで週間表へ追加 */
+.schedule td.add-cell { white-space: nowrap; }
+.cell-select {
+  padding: 4px 6px;
+  margin-right: 6px;
+  font: inherit;
+  font-size: .8rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Excel 出力・取り込み */
+.file-btn { display: inline-flex; align-items: center; cursor: pointer; }
+.preview { font-size: .85rem; }
+.preview td { white-space: nowrap; }
+.preview tr.unplaced-row { color: var(--muted); font-style: italic; }
