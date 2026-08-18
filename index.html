@@ -50,7 +50,11 @@
   <section class="panel" aria-labelledby="list-heading">
     <div class="panel-head">
       <h2 id="list-heading">タスク一覧</h2>
-      <button type="button" class="btn ghost danger" id="clear-btn">すべて削除</button>
+      <div class="head-actions">
+        <button type="button" class="btn ghost" id="clear-planning-btn"
+          title="タスク一覧と自動スケジュールを空にします。週間表に配置済みのタスクはそのまま残ります。">週間表を残してクリア</button>
+        <button type="button" class="btn ghost danger" id="clear-btn">すべて削除</button>
+      </div>
     </div>
     <ul class="task-list" id="task-list"></ul>
     <p class="empty" id="list-empty">まだタスクがありません。左のフォームから追加してください。</p>

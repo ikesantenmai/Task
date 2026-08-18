@@ -27,6 +27,7 @@ const el = {
   submit: document.getElementById('submit-btn'),
   cancel: document.getElementById('cancel-btn'),
   clear: document.getElementById('clear-btn'),
+  clearPlanning: document.getElementById('clear-planning-btn'),
   list: document.getElementById('task-list'),
   listEmpty: document.getElementById('list-empty'),
   timeline: document.getElementById('timeline'),
@@ -185,6 +186,7 @@ function loadEvents() {
       day: Number.isFinite(Number(e.day)) ? clamp(Number(e.day), 0, WEEK_LENGTH - 1) : todayIndex(),
       start: snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
       duration: clamp(Number(e.duration) || 30, 5, MAX_DURATION),
+      priority: Number(e.priority) > 0 ? clamp(Number(e.priority), 1, 99) : null,
     }));
 }
 
@@ -261,6 +263,7 @@ function boardItems(day) {
     day: event.day,
     start: event.start,
     duration: event.duration,
+    priority: event.priority || null,
   }));
   return placedTasks
     .concat(eventItems)
@@ -305,6 +308,11 @@ function placeItem(kind, id, day, start) {
   setBoardStatus(`「${task.name}」を ${dayLabel(day)} ${formatTime(start)} に配置しました。`);
 }
 
+/* 一覧から外したタスク（優先順位あり）は「予定」と呼ばないようにする */
+function eventLabel(event) {
+  return event.priority ? `「${event.name}」` : `予定「${event.name}」`;
+}
+
 function moveEvent(id, day, start) {
   const event = events.find((e) => e.id === id);
   if (!event) return;
@@ -319,7 +327,7 @@ function moveEvent(id, day, start) {
   event.start = start;
   saveEvents();
   render();
-  setBoardStatus(`予定「${event.name}」を ${dayLabel(day)} ${formatTime(start)} に移動しました。`);
+  setBoardStatus(`${eventLabel(event)}を ${dayLabel(day)} ${formatTime(start)} に移動しました。`);
 }
 
 function unplaceTask(id) {
@@ -334,12 +342,13 @@ function unplaceTask(id) {
 function removeEvent(id) {
   const event = events.find((e) => e.id === id);
   if (!event) return;
-  if (!window.confirm(`予定「${event.name}」を削除しますか？`)) return;
+  if (!window.confirm(`${eventLabel(event)}を削除しますか？`)) return;
+  const label = eventLabel(event);
   events = events.filter((e) => e.id !== id);
   if (editingEventId === id) resetEventForm();
   saveEvents();
   render();
-  setBoardStatus(`予定「${event.name}」を削除しました。`);
+  setBoardStatus(`${label}を削除しました。`);
 }
 
 /* 所要時間の変更などで配置が成立しなくなったタスクは解除する（予定は動かさない） */
@@ -485,6 +494,7 @@ function renderList() {
   el.list.textContent = '';
   el.listEmpty.hidden = tasks.length > 0;
   el.clear.hidden = tasks.length === 0;
+  el.clearPlanning.hidden = tasks.length === 0;
 
   tasks.forEach((task) => {
     const item = document.createElement('li');
@@ -785,15 +795,16 @@ function makeBoardCell(item, span) {
   cell.className = 'placed-cell' + (item.day === todayIndex() ? ' is-today' : '');
   cell.rowSpan = span;
 
+  const isPlainEvent = item.kind === 'event' && !item.priority;
   const block = document.createElement('div');
-  block.className = 'placed' + (item.kind === 'event' ? ' is-event' : '');
+  block.className = 'placed' + (isPlainEvent ? ' is-event' : '');
   block.dataset.itemId = item.id;
 
   const body = document.createElement('div');
   body.className = 'placed-body';
   const name = document.createElement('strong');
   name.textContent = item.name;
-  const detail = item.kind === 'event'
+  const detail = isPlainEvent
     ? `予定・${formatDuration(item.duration)}`
     : `優先${item.priority}・${formatDuration(item.duration)}`;
   body.append(
@@ -1024,13 +1035,13 @@ function exportRows() {
   const items = isWeek ? boardItems() : boardItems(day);
 
   const rows = items.map((item) => [
-    item.kind === 'event' ? '予定' : 'タスク',
+    item.kind === 'event' && !item.priority ? '予定' : 'タスク',
     WEEK_NAMES[item.day],
     dayStamp(item.day),
     formatTime(item.start),
     formatTime(item.start + item.duration),
     item.name,
-    item.kind === 'event' ? '' : item.priority,
+    item.priority || '',
     item.duration,
   ]);
 
@@ -1499,6 +1510,38 @@ el.cancel.addEventListener('click', () => {
   render();
 });
 
+/* タスク一覧と自動スケジュールだけを空にする。
+ * 週間表に配置済みのタスクは、優先順位を保ったままそのまま残す。 */
+el.clearPlanning.addEventListener('click', () => {
+  if (tasks.length === 0) return;
+  const placed = tasks.filter((task) => task.placedAt !== null);
+  const message = placed.length
+    ? `タスク一覧と自動スケジュールをクリアします。週間表に配置済みの ${placed.length}件は、` +
+      'そのまま週間表に残ります（タスク一覧からは消えます）。よろしいですか？'
+    : 'タスク一覧と自動スケジュールをクリアします。よろしいですか？';
+  if (!window.confirm(message)) return;
+
+  placed.forEach((task) => {
+    events.push({
+      id: newId('event-'),
+      name: task.name,
+      day: task.placedAt.day,
+      start: task.placedAt.start,
+      duration: task.duration,
+      priority: task.priority,
+    });
+  });
+
+  tasks = [];
+  save();
+  saveEvents();
+  resetForm();
+  render();
+  setBoardStatus(placed.length
+    ? `タスク一覧と自動スケジュールをクリアしました（週間表の ${placed.length}件はそのまま残っています）。`
+    : 'タスク一覧と自動スケジュールをクリアしました。');
+});
+
 el.clear.addEventListener('click', () => {
   if (tasks.length === 0) return;
   if (!window.confirm('すべてのタスクを削除しますか？')) return;
@@ -1589,17 +1632,20 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
     return;
   }
 
-  const label = editingEventId ? '更新' : '追加';
+  const action = editingEventId ? '更新' : '追加';
+  let target;
   if (editingEventId) {
-    Object.assign(events.find((e) => e.id === editingEventId), { name, day, start, duration });
+    target = events.find((e) => e.id === editingEventId);
+    Object.assign(target, { name, day, start, duration });   /* 優先順位は保持する */
   } else {
-    events.push({ id, name, day, start, duration });
+    target = { id, name, day, start, duration, priority: null };
+    events.push(target);
   }
 
   saveEvents();
   resetEventForm();
   render();
-  setBoardStatus(`予定「${name}」を ${dayLabel(day)} ${formatTime(start)} に${label}しました。`);
+  setBoardStatus(`${eventLabel(target)}を ${dayLabel(day)} ${formatTime(start)} に${action}しました。`);
 });
 
 el.eventCancel.addEventListener('click', () => {

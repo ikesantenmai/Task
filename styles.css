@@ -421,3 +421,5 @@ body.is-dragging { cursor: grabbing; user-select: none; }
   border-radius: 8px;
 }
 .conflict-foot { gap: 8px; }
+
+.head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
