@@ -61,6 +61,7 @@ body {
 .panel h2 { margin: 0 0 16px; font-size: 1.05rem; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; }
+.panel-head .empty { margin: 0; }
 
 /* フォーム */
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -181,9 +182,61 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .schedule tr.gap td { color: var(--muted); font-style: italic; }
 .schedule td.center { text-align: center; color: var(--muted); }
 
-.overflow { margin-top: 20px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--danger-soft); }
-.overflow h3 { margin: 0 0 4px; font-size: .95rem; color: var(--danger); }
-.overflow ul { margin: 8px 0 0; padding-left: 20px; font-size: .88rem; }
+.table-scroll { overflow-x: auto; }
+.schedule .cell-input {
+  width: 72px;
+  padding: 5px 8px;
+  font-size: .85rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cell-note { margin-left: 8px; font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.schedule tr.section-row td {
+  padding-top: 16px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--danger);
+  border-bottom: none;
+}
+.schedule tr.unscheduled { background: var(--danger-soft); }
+.schedule tr.unscheduled td.time { color: var(--danger); }
+
+/* 優先順位の重複ダイアログ */
+.conflict {
+  width: min(460px, calc(100vw - 32px));
+  padding: 22px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.conflict::backdrop { background: rgba(12, 16, 28, .5); }
+.conflict h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.conflict p { margin: 0 0 16px; font-size: .88rem; color: var(--muted); }
+.conflict-options { display: flex; flex-direction: column; gap: 10px; }
+.conflict-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 12px 14px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.conflict-option:hover, .conflict-option:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+.conflict-option strong { font-size: .95rem; }
+.conflict-option span { font-size: .8rem; color: var(--muted); }
+.conflict-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 @media (max-width: 780px) {
   .layout { grid-template-columns: 1fr; }

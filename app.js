@@ -1,9 +1,11 @@
 /* 1日のタスクスケジューラー
- * 優先順位（1が最優先）の高いタスクから 9:00〜18:00 に順番に割り当てる。 */
+ * 優先順位（1が最優先）の高いタスクから 9:00〜18:00 に順番に割り当てる。
+ * tasks 配列の並び順がそのまま優先順位で、変更のたびに 1..n を振り直す。 */
 'use strict';
 
 const DAY_START = 9 * 60;   // 9:00 を分に換算
 const DAY_END = 18 * 60;    // 18:00
+const MAX_DURATION = DAY_END - DAY_START;
 const STORAGE_KEY = 'daily-task-scheduler/v1';
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
 
@@ -21,13 +23,16 @@ const el = {
   listEmpty: document.getElementById('list-empty'),
   timeline: document.getElementById('timeline'),
   scheduleBody: document.getElementById('schedule-body'),
-  overflow: document.getElementById('overflow'),
-  overflowList: document.getElementById('overflow-list'),
   summary: document.getElementById('summary'),
   exportText: document.getElementById('export-text'),
   exportStatus: document.getElementById('export-status'),
   copy: document.getElementById('copy-btn'),
   download: document.getElementById('download-btn'),
+  dialog: document.getElementById('conflict-dialog'),
+  dialogMessage: document.getElementById('conflict-message'),
+  chooseMoving: document.getElementById('choose-moving'),
+  chooseExisting: document.getElementById('choose-existing'),
+  dialogCancel: document.getElementById('conflict-cancel'),
 };
 
 let tasks = load();
@@ -41,15 +46,18 @@ function load() {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const loaded = parsed
       .filter((t) => t && typeof t.name === 'string')
       .map((t, i) => ({
         id: String(t.id || `${Date.now()}-${i}`),
         name: t.name,
         priority: clamp(Number(t.priority) || 1, 1, 99),
-        duration: clamp(Number(t.duration) || 30, 5, DAY_END - DAY_START),
+        duration: clamp(Number(t.duration) || 30, 5, MAX_DURATION),
         createdAt: Number(t.createdAt) || i,
-      }));
+      }))
+      .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
+    loaded.forEach((task, i) => { task.priority = i + 1; });
+    return loaded;
   } catch (e) {
     return [];
   }
@@ -83,20 +91,20 @@ function formatDuration(minutes) {
   return `${m}分`;
 }
 
+function renumber() {
+  tasks.forEach((task, i) => { task.priority = i + 1; });
+}
+
 /* ---------- スケジューリング ---------- */
 
-/* 優先順位（同順位は登録順）で並べ、9:00 から詰めていく。
+/* 優先順位の順に 9:00 から詰めていく。
  * 残り時間に収まらないタスクは飛ばし、後続の短いタスクで埋める。 */
 function buildSchedule() {
-  const ordered = tasks
-    .slice()
-    .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
-
   const scheduled = [];
   const unscheduled = [];
   let cursor = DAY_START;
 
-  for (const task of ordered) {
+  for (const task of tasks) {
     if (cursor + task.duration <= DAY_END) {
       scheduled.push({ task, start: cursor, end: cursor + task.duration });
       cursor += task.duration;
@@ -105,27 +113,121 @@ function buildSchedule() {
     }
   }
 
-  return { ordered, scheduled, unscheduled, freeMinutes: DAY_END - cursor };
+  return { scheduled, unscheduled, freeMinutes: DAY_END - cursor };
+}
+
+/* ---------- 優先順位の変更 ---------- */
+
+/* 同じ優先順位のタスクがある場合に、どちらを先にするか選んでもらう。
+ * 戻り値は 'moving'（動かす側が先）／'existing'（既存が先）／null（キャンセル）。 */
+let conflictOpen = false;
+
+function askPriorityConflict(moving, rival, rank) {
+  /* ダイアログを開いている間に別の変更が届いても、二重に適用しない */
+  if (conflictOpen) return Promise.resolve(null);
+  conflictOpen = true;
+
+  return new Promise((resolve) => {
+    el.dialogMessage.textContent =
+      `優先順位 ${rank} には既に「${rival.name}」があります。どちらを先に実行しますか？`;
+    fillChoice(el.chooseMoving, moving, `優先順位 ${rank}（先に実行）`);
+    fillChoice(el.chooseExisting, rival, `優先順位 ${rank}（先に実行）`);
+
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      conflictOpen = false;
+      el.chooseMoving.removeEventListener('click', onMoving);
+      el.chooseExisting.removeEventListener('click', onExisting);
+      el.dialogCancel.removeEventListener('click', onCancel);
+      el.dialog.removeEventListener('close', onClose);
+      if (el.dialog.open) el.dialog.close();
+      resolve(result);
+    };
+    const onMoving = () => finish('moving');
+    const onExisting = () => finish('existing');
+    const onCancel = () => finish(null);
+    const onClose = () => finish(null);
+
+    el.chooseMoving.addEventListener('click', onMoving);
+    el.chooseExisting.addEventListener('click', onExisting);
+    el.dialogCancel.addEventListener('click', onCancel);
+    el.dialog.addEventListener('close', onClose);
+
+    if (typeof el.dialog.showModal === 'function') {
+      el.dialog.showModal();
+    } else {
+      el.dialog.setAttribute('open', '');
+    }
+    el.chooseMoving.focus();
+  });
+}
+
+function fillChoice(button, task, badgeText) {
+  button.textContent = '';
+  const name = document.createElement('strong');
+  name.textContent = `「${task.name}」を先にする`;
+  const meta = document.createElement('span');
+  meta.textContent = `所要 ${formatDuration(task.duration)}　→　${badgeText}`;
+  button.append(name, meta);
+}
+
+/* 既存タスクを希望の優先順位へ移動する。重複時は選択ダイアログを挟む。 */
+async function moveTask(id, desiredRank) {
+  const from = tasks.findIndex((t) => t.id === id);
+  if (from < 0) return false;
+
+  const rank = clamp(desiredRank, 1, tasks.length);
+  if (rank - 1 === from) return false;
+
+  const moving = tasks[from];
+  const rival = tasks[rank - 1];
+  const choice = await askPriorityConflict(moving, rival, rank);
+  if (!choice) return false;
+
+  tasks.splice(from, 1);
+  const rivalIndex = tasks.indexOf(rival);
+  tasks.splice(choice === 'moving' ? rivalIndex : rivalIndex + 1, 0, moving);
+  renumber();
+  return true;
+}
+
+/* 新しいタスクを希望の優先順位に差し込む。重複時は選択ダイアログを挟む。 */
+async function insertTask(task, desiredRank) {
+  const rank = clamp(desiredRank, 1, tasks.length + 1);
+  if (rank > tasks.length) {
+    tasks.push(task);
+    renumber();
+    return true;
+  }
+
+  const rival = tasks[rank - 1];
+  const choice = await askPriorityConflict(task, rival, rank);
+  if (!choice) return false;
+
+  tasks.splice(choice === 'moving' ? rank - 1 : rank, 0, task);
+  renumber();
+  return true;
 }
 
 /* ---------- 描画 ---------- */
 
 function render() {
   const plan = buildSchedule();
-  renderList(plan.ordered);
+  renderList();
   renderTimeline(plan);
   renderTable(plan);
-  renderOverflow(plan);
   renderSummary(plan);
   renderExport(plan);
 }
 
-function renderList(ordered) {
+function renderList() {
   el.list.textContent = '';
-  el.listEmpty.hidden = ordered.length > 0;
-  el.clear.hidden = ordered.length === 0;
+  el.listEmpty.hidden = tasks.length > 0;
+  el.clear.hidden = tasks.length === 0;
 
-  ordered.forEach((task) => {
+  tasks.forEach((task) => {
     const item = document.createElement('li');
     item.className = 'task-item' + (task.id === editingId ? ' editing' : '');
 
@@ -168,6 +270,7 @@ function makeButton(label, onClick, ariaLabel, danger) {
 
 function renderTimeline(plan) {
   el.timeline.textContent = '';
+
   plan.scheduled.forEach((entry, index) => {
     const slot = document.createElement('div');
     slot.className = 'slot';
@@ -194,7 +297,7 @@ function renderTimeline(plan) {
 function renderTable(plan) {
   el.scheduleBody.textContent = '';
 
-  if (plan.scheduled.length === 0) {
+  if (tasks.length === 0) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
     cell.colSpan = 4;
@@ -206,17 +309,12 @@ function renderTable(plan) {
   }
 
   plan.scheduled.forEach((entry) => {
-    const row = document.createElement('tr');
-    row.append(
-      makeCell(`${formatTime(entry.start)} 〜 ${formatTime(entry.end)}`, 'time'),
-      makeCell(String(entry.task.priority)),
-      makeCell(entry.task.name),
-      makeCell(formatDuration(entry.task.duration), 'duration')
+    el.scheduleBody.append(
+      makeTaskRow(entry.task, `${formatTime(entry.start)} 〜 ${formatTime(entry.end)}`)
     );
-    el.scheduleBody.append(row);
   });
 
-  if (plan.freeMinutes > 0) {
+  if (plan.freeMinutes > 0 && plan.scheduled.length > 0) {
     const last = plan.scheduled[plan.scheduled.length - 1].end;
     const row = document.createElement('tr');
     row.className = 'gap';
@@ -228,6 +326,99 @@ function renderTable(plan) {
     );
     el.scheduleBody.append(row);
   }
+
+  if (plan.unscheduled.length > 0) {
+    const head = document.createElement('tr');
+    head.className = 'section-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.textContent = '割り当てできなかったタスク（9:00〜18:00 に収まりません。優先順位か所要時間を見直してください）';
+    head.append(cell);
+    el.scheduleBody.append(head);
+
+    plan.unscheduled.forEach((task) => {
+      el.scheduleBody.append(makeTaskRow(task, '—', true));
+    });
+  }
+}
+
+/* 優先順位と所要時間をその場で編集できる行を作る。 */
+function makeTaskRow(task, timeLabel, unscheduled) {
+  const row = document.createElement('tr');
+  if (unscheduled) row.className = 'unscheduled';
+
+  const priorityCell = document.createElement('td');
+  priorityCell.append(
+    makeNumberInput({
+      value: task.priority,
+      min: 1,
+      max: Math.max(tasks.length, 1),
+      step: 1,
+      field: 'priority',
+      taskId: task.id,
+      label: `${task.name} の優先順位`,
+      onCommit: (value) => changePriority(task.id, value),
+    })
+  );
+
+  const durationCell = document.createElement('td');
+  durationCell.className = 'duration';
+  durationCell.append(
+    makeNumberInput({
+      value: task.duration,
+      min: 5,
+      max: MAX_DURATION,
+      step: 5,
+      field: 'duration',
+      taskId: task.id,
+      label: `${task.name} の所要時間（分）`,
+      onCommit: (value) => changeDuration(task.id, value),
+    }),
+    makeSpan(formatDuration(task.duration), 'cell-note')
+  );
+
+  row.append(
+    makeCell(timeLabel, 'time'),
+    priorityCell,
+    makeCell(task.name),
+    durationCell
+  );
+  return row;
+}
+
+function makeNumberInput(options) {
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.className = 'cell-input';
+  input.value = String(options.value);
+  input.min = String(options.min);
+  input.max = String(options.max);
+  input.step = String(options.step);
+  input.dataset.taskId = options.taskId;
+  input.dataset.field = options.field;
+  input.setAttribute('aria-label', options.label);
+  input.addEventListener('change', () => {
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) {
+      render();
+      return;
+    }
+    options.onCommit(value);
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+  return input;
+}
+
+function makeSpan(text, className) {
+  const span = document.createElement('span');
+  span.className = className;
+  span.textContent = text;
+  return span;
 }
 
 function makeCell(text, className) {
@@ -235,16 +426,6 @@ function makeCell(text, className) {
   if (className) cell.className = className;
   cell.textContent = text;
   return cell;
-}
-
-function renderOverflow(plan) {
-  el.overflow.hidden = plan.unscheduled.length === 0;
-  el.overflowList.textContent = '';
-  plan.unscheduled.forEach((task) => {
-    const item = document.createElement('li');
-    item.textContent = `${task.name}（優先順位 ${task.priority}・${formatDuration(task.duration)}）`;
-    el.overflowList.append(item);
-  });
 }
 
 function renderSummary(plan) {
@@ -361,7 +542,7 @@ function downloadText() {
   ].join('-');
 
   /* BOM 付きで保存し、Windows のテキストエディタでも文字化けしないようにする */
-  const blob = new Blob(['\uFEFF' + el.exportText.value], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob(['﻿' + el.exportText.value], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -402,29 +583,24 @@ function readForm() {
     showError('所要時間は5分以上で入力してください。');
     return null;
   }
-  if (duration > DAY_END - DAY_START) {
-    showError(`所要時間は1日の枠（${formatDuration(DAY_END - DAY_START)}）以内で入力してください。`);
+  if (duration > MAX_DURATION) {
+    showError(`所要時間は1日の枠（${formatDuration(MAX_DURATION)}）以内で入力してください。`);
     return null;
   }
 
   clearError();
-  return { name, priority: clamp(priority, 1, 99), duration: clamp(duration, 5, DAY_END - DAY_START) };
+  return { name, priority: clamp(priority, 1, 99), duration: clamp(duration, 5, MAX_DURATION) };
 }
 
 function resetForm() {
   editingId = null;
   el.form.reset();
   el.id.value = '';
-  el.priority.value = String(nextPriority());
+  el.priority.value = String(tasks.length + 1);
   el.duration.value = '60';
   el.submit.textContent = '追加する';
   el.cancel.hidden = true;
   clearError();
-}
-
-function nextPriority() {
-  if (tasks.length === 0) return 1;
-  return clamp(Math.max(...tasks.map((t) => t.priority)) + 1, 1, 99);
 }
 
 function startEdit(id) {
@@ -447,24 +623,66 @@ function removeTask(id) {
   if (!task) return;
   if (!window.confirm(`「${task.name}」を削除しますか？`)) return;
   tasks = tasks.filter((t) => t.id !== id);
+  renumber();
   if (editingId === id) resetForm();
   save();
   render();
 }
 
-el.form.addEventListener('submit', (event) => {
+/* 表からの優先順位の変更（重複時は比較ダイアログ、キャンセル時は元に戻す） */
+async function changePriority(id, value) {
+  const changed = await moveTask(id, value);
+  if (changed) save();
+  render();
+  if (changed) focusCell(id, 'priority');
+}
+
+/* 表からの所要時間の変更 */
+function changeDuration(id, value) {
+  const task = tasks.find((t) => t.id === id);
+  if (!task) return;
+  task.duration = clamp(value, 5, MAX_DURATION);
+  save();
+  render();
+  focusCell(id, 'duration');
+}
+
+/* 再描画で入力欄が作り直されるため、操作していたセルに focus を戻す */
+function focusCell(id, field) {
+  const input = el.scheduleBody.querySelector(
+    `input[data-task-id="${CSS.escape(id)}"][data-field="${field}"]`
+  );
+  if (input) input.focus();
+}
+
+el.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const input = readForm();
   if (!input) return;
 
   if (editingId) {
-    tasks = tasks.map((t) => (t.id === editingId ? { ...t, ...input } : t));
+    const task = tasks.find((t) => t.id === editingId);
+    if (!task) return;
+    task.name = input.name;
+    task.duration = input.duration;
+    if (input.priority !== task.priority) {
+      const moved = await moveTask(editingId, input.priority);
+      if (!moved) {
+        /* 順位の変更は取り消し。名前と所要時間の変更は保存する。 */
+        save();
+        render();
+        el.priority.value = String(task.priority);
+        return;
+      }
+    }
   } else {
-    tasks.push({
+    const task = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
       ...input,
-    });
+    };
+    const inserted = await insertTask(task, input.priority);
+    if (!inserted) return;
   }
 
   save();

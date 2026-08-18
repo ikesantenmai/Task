@@ -58,18 +58,23 @@
 
   <!-- スケジュール -->
   <section class="panel wide" aria-labelledby="schedule-heading">
-    <h2 id="schedule-heading">スケジュール（9:00〜18:00）</h2>
+    <div class="panel-head">
+      <h2 id="schedule-heading">スケジュール（9:00〜18:00）</h2>
+      <p class="empty">優先順位と所要時間は、この表で直接変更できます。</p>
+    </div>
     <div class="timeline" id="timeline" aria-hidden="true"></div>
-    <table class="schedule" id="schedule-table">
-      <thead>
-        <tr><th scope="col">時間</th><th scope="col">優先順位</th><th scope="col">タスク名</th><th scope="col">所要時間</th></tr>
-      </thead>
-      <tbody id="schedule-body"></tbody>
-    </table>
-    <div class="overflow" id="overflow" hidden>
-      <h3>割り当てできなかったタスク</h3>
-      <p class="empty">9:00〜18:00 に収まらなかったため、翌日以降に回すか所要時間を見直してください。</p>
-      <ul id="overflow-list"></ul>
+    <div class="table-scroll">
+      <table class="schedule" id="schedule-table">
+        <thead>
+          <tr>
+            <th scope="col">時間</th>
+            <th scope="col">優先順位</th>
+            <th scope="col">タスク名</th>
+            <th scope="col">所要時間（分）</th>
+          </tr>
+        </thead>
+        <tbody id="schedule-body"></tbody>
+      </table>
     </div>
   </section>
 
@@ -87,6 +92,19 @@
     <p class="empty" id="export-status" role="status" aria-live="polite"></p>
   </section>
 </main>
+
+<!-- 優先順位の重複時に比較して選ぶダイアログ -->
+<dialog id="conflict-dialog" class="conflict" aria-labelledby="conflict-heading">
+  <h2 id="conflict-heading">優先順位が重複しています</h2>
+  <p id="conflict-message"></p>
+  <div class="conflict-options">
+    <button type="button" class="conflict-option" id="choose-moving"></button>
+    <button type="button" class="conflict-option" id="choose-existing"></button>
+  </div>
+  <div class="conflict-foot">
+    <button type="button" class="btn ghost" id="conflict-cancel">キャンセル</button>
+  </div>
+</dialog>
 
 <script src="app.js"></script>
 </body>
