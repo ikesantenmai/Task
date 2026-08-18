@@ -82,16 +82,20 @@
   <!-- 手動スケジュール（ドラッグ＆ドロップ） -->
   <section class="panel wide" aria-labelledby="board-heading">
     <div class="panel-head">
-      <h2 id="board-heading">手動スケジュール（ドラッグ＆ドロップ）</h2>
+      <h2 id="board-heading">週間スケジュール（ドラッグ＆ドロップ）</h2>
       <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
     </div>
-    <p class="empty">上の自動スケジュール表の行を、この表の空いている時間帯にドラッグすると、その時刻に固定できます。優先度のない予定（会議・昼休みなど）は下のフォームから直接追加できます。配置したタスク・予定は、どちらもドラッグで移動できます。</p>
+    <p class="empty">上の自動スケジュール表の行を、この週間表の空いている時間帯にドラッグすると、その日時に固定できます。優先度のない予定（会議・昼休みなど）は下のフォームから直接追加できます。配置したタスク・予定は、どちらも週内の別の日時へドラッグで移動できます（スマートフォン・タブレットのタッチ操作にも対応）。</p>
 
     <form class="event-form" id="event-form" novalidate>
       <input type="hidden" id="event-id">
       <div class="field">
         <label for="event-name">予定名</label>
         <input type="text" id="event-name" placeholder="例：昼休み" maxlength="40" required>
+      </div>
+      <div class="field">
+        <label for="event-day">日</label>
+        <select id="event-day"></select>
       </div>
       <div class="field">
         <label for="event-start">開始時刻</label>
@@ -109,10 +113,7 @@
     <div class="table-scroll">
       <table class="schedule board" id="board-table">
         <thead>
-          <tr>
-            <th scope="col">時間</th>
-            <th scope="col">タスク</th>
-          </tr>
+          <tr id="board-head"></tr>
         </thead>
         <tbody id="board-body"></tbody>
       </table>
@@ -125,6 +126,11 @@
     <div class="panel-head">
       <h2 id="export-heading">テキスト出力</h2>
       <div class="export-actions">
+        <div class="export-range" role="radiogroup" aria-label="出力範囲">
+          <label><input type="radio" name="export-range" value="day" checked> 日単位</label>
+          <label><input type="radio" name="export-range" value="week"> 週単位</label>
+        </div>
+        <select id="export-day" aria-label="出力する日"></select>
         <button type="button" class="btn ghost" id="copy-btn">コピー</button>
         <button type="button" class="btn ghost" id="download-btn">.txt をダウンロード</button>
       </div>

@@ -51,6 +51,7 @@ body {
   align-items: start;
 }
 .panel {
+  min-width: 0;                /* グリッド項目が中身の幅で膨らまないようにする */
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -59,7 +60,7 @@ body {
 }
 .panel.wide { grid-column: 1 / -1; }
 .panel h2 { margin: 0 0 16px; font-size: 1.05rem; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; }
 .panel-head .empty { margin: 0; }
 
@@ -182,7 +183,7 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .schedule tr.gap td { color: var(--muted); font-style: italic; }
 .schedule td.center { text-align: center; color: var(--muted); }
 
-.table-scroll { overflow-x: auto; }
+.table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .schedule .cell-input {
   width: 72px;
   padding: 5px 8px;
@@ -241,10 +242,24 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (max-width: 780px) {
   .layout { grid-template-columns: 1fr; }
   .panel.wide { grid-column: auto; }
+  .panel-head h2 { flex: 1 1 100%; }
+  .export-actions { width: 100%; }
 }
 
 /* テキスト出力 */
-.export-actions { display: flex; gap: 8px; }
+.export-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.export-range { display: flex; gap: 12px; font-size: .85rem; color: var(--muted); }
+.export-range label { display: flex; align-items: center; gap: 4px; font-weight: 600; cursor: pointer; }
+.export-actions select {
+  padding: 7px 10px;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.export-actions select:disabled { opacity: .5; }
 .export-text {
   width: 100%;
   padding: 12px 14px;
@@ -272,14 +287,35 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.schedule td.handle-cell {
-  width: 24px;
-  padding-right: 0;
+.schedule td.handle-cell { width: 30px; padding-right: 0; }
+.drag-handle {
+  display: inline-block;
+  padding: 4px 6px;
   color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
   cursor: grab;
   user-select: none;
+  touch-action: none;          /* タッチでのドラッグ中に画面をスクロールさせない */
+  border-radius: 6px;
 }
-.schedule tr.dragging { opacity: .45; }
+.drag-handle:hover, .drag-handle:focus-visible { color: var(--accent); background: var(--accent-soft); }
+.schedule tr.dragging, .placed.dragging { opacity: .45; }
+body.is-dragging { cursor: grabbing; user-select: none; }
+.drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%, -140%);
+  padding: 6px 12px;
+  font-size: .85rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(20, 30, 60, .3);
+  pointer-events: none;
+  white-space: nowrap;
+}
 .badge {
   display: inline-block;
   margin-left: 8px;
@@ -291,20 +327,24 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   white-space: nowrap;
 }
 
-.board { table-layout: fixed; }
-.board th:first-child, .board td.time { width: 130px; }
+.board { table-layout: fixed; min-width: 900px; }
+.board th:first-child, .board td.time { width: 110px; }
+.board th { text-align: center; }
+.board th.is-today { color: var(--accent); }
 .board td { vertical-align: top; height: 38px; }
+.board td.is-today { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 .board td.drop-cell {
   border-left: 1px solid var(--border);
   border-radius: 4px;
   transition: background .12s ease;
 }
 .board td.drop-cell.drop-hover { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
-.board td.placed-cell { border-left: 1px solid var(--border); padding: 4px 6px; }
+.board td.placed-cell { border-left: 1px solid var(--border); padding: 3px 4px; }
 .placed {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 10px;
+  gap: 4px 8px;
   height: 100%;
   padding: 8px 10px;
   background: var(--accent-soft);
@@ -317,8 +357,10 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .placed-handle { flex: none; color: var(--muted); user-select: none; }
 .placed-body { flex: 1; min-width: 0; }
 .placed-actions { flex: none; display: flex; gap: 6px; }
-.placed strong { display: block; font-size: .92rem; overflow-wrap: anywhere; }
-.placed-meta { display: block; font-size: .76rem; color: var(--muted); }
+.placed strong { display: block; font-size: .85rem; overflow-wrap: anywhere; }
+.placed-meta { display: block; font-size: .72rem; color: var(--muted); }
+.placed-body { flex: 1 1 100px; }
+.placed .btn-small { font-size: .72rem; padding: 2px 8px; }
 
 /* 予定の入力フォーム */
 .event-form {
