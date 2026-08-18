@@ -85,7 +85,27 @@
       <h2 id="board-heading">手動スケジュール（ドラッグ＆ドロップ）</h2>
       <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
     </div>
-    <p class="empty">上の自動スケジュール表の行を、この表の空いている時間帯にドラッグすると、その時刻に固定できます。配置後もドラッグで移動でき、「解除」で元に戻せます。</p>
+    <p class="empty">上の自動スケジュール表の行を、この表の空いている時間帯にドラッグすると、その時刻に固定できます。優先度のない予定（会議・昼休みなど）は下のフォームから直接追加できます。配置したタスク・予定は、どちらもドラッグで移動できます。</p>
+
+    <form class="event-form" id="event-form" novalidate>
+      <input type="hidden" id="event-id">
+      <div class="field">
+        <label for="event-name">予定名</label>
+        <input type="text" id="event-name" placeholder="例：昼休み" maxlength="40" required>
+      </div>
+      <div class="field">
+        <label for="event-start">開始時刻</label>
+        <select id="event-start"></select>
+      </div>
+      <div class="field">
+        <label for="event-duration">所要時間（分）</label>
+        <input type="number" id="event-duration" min="5" max="540" step="5" value="60" required>
+      </div>
+      <div class="event-actions">
+        <button type="submit" class="btn primary btn-small" id="event-submit">予定を追加</button>
+        <button type="button" class="btn ghost btn-small" id="event-cancel" hidden>キャンセル</button>
+      </div>
+    </form>
     <div class="table-scroll">
       <table class="schedule board" id="board-table">
         <thead>

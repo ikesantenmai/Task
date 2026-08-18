@@ -7,6 +7,7 @@ const DAY_START = 9 * 60;   // 9:00 を分に換算
 const DAY_END = 18 * 60;    // 18:00
 const MAX_DURATION = DAY_END - DAY_START;
 const STORAGE_KEY = 'daily-task-scheduler/v1';
+const EVENTS_KEY = 'daily-task-scheduler/events/v1';
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
 const SLOT = 30;            // 手動スケジュールの1コマ（分）
 
@@ -32,6 +33,13 @@ const el = {
   board: document.getElementById('board-body'),
   boardStatus: document.getElementById('board-status'),
   clearPlacements: document.getElementById('clear-placements'),
+  eventForm: document.getElementById('event-form'),
+  eventId: document.getElementById('event-id'),
+  eventName: document.getElementById('event-name'),
+  eventStart: document.getElementById('event-start'),
+  eventDuration: document.getElementById('event-duration'),
+  eventSubmit: document.getElementById('event-submit'),
+  eventCancel: document.getElementById('event-cancel'),
   dialog: document.getElementById('conflict-dialog'),
   dialogMessage: document.getElementById('conflict-message'),
   chooseMoving: document.getElementById('choose-moving'),
@@ -40,7 +48,9 @@ const el = {
 };
 
 let tasks = load();
+let events = loadEvents();     // 優先度を持たない予定（会議・昼休みなど）
 let editingId = null;
+let editingEventId = null;
 
 /* ---------- 永続化 ---------- */
 
@@ -58,7 +68,7 @@ function load() {
         priority: clamp(Number(t.priority) || 1, 1, 99),
         duration: clamp(Number(t.duration) || 30, 5, MAX_DURATION),
         createdAt: Number(t.createdAt) || i,
-        placedAt: Number.isFinite(Number(t.placedAt)) ? Number(t.placedAt) : null,
+        placedAt: typeof t.placedAt === 'number' && Number.isFinite(t.placedAt) ? t.placedAt : null,
       }))
       .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
     loaded.forEach((task, i) => { task.priority = i + 1; });
@@ -71,6 +81,33 @@ function load() {
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  } catch (e) {
+    /* 保存できなくても画面の操作は継続できる */
+  }
+}
+
+function loadEvents() {
+  try {
+    const raw = localStorage.getItem(EVENTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e) => e && typeof e.name === 'string' && Number.isFinite(Number(e.start)))
+      .map((e, i) => ({
+        id: String(e.id || `event-${Date.now()}-${i}`),
+        name: e.name,
+        start: snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
+        duration: clamp(Number(e.duration) || 30, 5, MAX_DURATION),
+      }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveEvents() {
+  try {
+    localStorage.setItem(EVENTS_KEY, JSON.stringify(events));
   } catch (e) {
     /* 保存できなくても画面の操作は継続できる */
   }
@@ -94,6 +131,11 @@ function formatDuration(minutes) {
   if (h && m) return `${h}時間${m}分`;
   if (h) return `${h}時間`;
   return `${m}分`;
+}
+
+/* 手動スケジュールは30分刻みなので、開始時刻をコマの先頭に合わせる */
+function snapToSlot(minutes) {
+  return DAY_START + Math.round((minutes - DAY_START) / SLOT) * SLOT;
 }
 
 function renumber() {
@@ -124,32 +166,66 @@ function buildSchedule() {
 /* ---------- 手動スケジュール（配置） ---------- */
 
 /* 表示上は30分単位のコマを占有するため、終了時刻もコマ単位に切り上げる */
-function slotSpan(task) {
-  return Math.max(1, Math.ceil(task.duration / SLOT));
+function slotSpan(duration) {
+  return Math.max(1, Math.ceil(duration / SLOT));
 }
 
-function occupiedEnd(start, task) {
-  return start + slotSpan(task) * SLOT;
+function occupiedEnd(start, duration) {
+  return start + slotSpan(duration) * SLOT;
 }
 
-function canPlace(task, start) {
-  if (start < DAY_START || occupiedEnd(start, task) > DAY_END) return false;
-  return tasks.every((other) => {
-    if (other.id === task.id || other.placedAt === null) return true;
-    return start >= occupiedEnd(other.placedAt, other) || occupiedEnd(start, task) <= other.placedAt;
+/* 手動スケジュールに並ぶもの＝配置済みタスクと予定 */
+function boardItems() {
+  const placedTasks = tasks
+    .filter((task) => task.placedAt !== null)
+    .map((task) => ({
+      kind: 'task',
+      id: task.id,
+      name: task.name,
+      start: task.placedAt,
+      duration: task.duration,
+      priority: task.priority,
+    }));
+  const eventItems = events.map((event) => ({
+    kind: 'event',
+    id: event.id,
+    name: event.name,
+    start: event.start,
+    duration: event.duration,
+  }));
+  return placedTasks.concat(eventItems).sort((a, b) => a.start - b.start);
+}
+
+/* start に置いたときに他の予定・配置と重ならないか */
+function isFree(kind, id, start, duration) {
+  return boardItems().every((item) => {
+    if (item.kind === kind && item.id === id) return true;
+    return start >= occupiedEnd(item.start, item.duration) ||
+      occupiedEnd(start, duration) <= item.start;
   });
 }
 
-function placeTask(id, start) {
+/* 配置できない理由を返す（配置できる場合は null） */
+function placementIssue(name, kind, id, start, duration) {
+  if (start < DAY_START || occupiedEnd(start, duration) > DAY_END) {
+    return `「${name}」は ${formatTime(DAY_END)} を超えるため、この時間には配置できません。`;
+  }
+  if (!isFree(kind, id, start, duration)) {
+    return `「${name}」は他のタスク・予定と重なるため、この時間には配置できません。`;
+  }
+  return null;
+}
+
+/* ドラッグ＆ドロップ／フォームからの配置 */
+function placeItem(kind, id, start) {
+  if (kind === 'event') return moveEvent(id, start);
+
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
 
-  if (occupiedEnd(start, task) > DAY_END) {
-    setBoardStatus(`「${task.name}」は ${formatTime(DAY_END)} を超えるため、この時間には配置できません。`);
-    return;
-  }
-  if (!canPlace(task, start)) {
-    setBoardStatus(`「${task.name}」は他の配置済みタスクと重なるため、この時間には配置できません。`);
+  const issue = placementIssue(task.name, 'task', id, start, task.duration);
+  if (issue) {
+    setBoardStatus(issue);
     return;
   }
 
@@ -157,6 +233,22 @@ function placeTask(id, start) {
   save();
   render();
   setBoardStatus(`「${task.name}」を ${formatTime(start)} に配置しました。`);
+}
+
+function moveEvent(id, start) {
+  const event = events.find((e) => e.id === id);
+  if (!event) return;
+
+  const issue = placementIssue(event.name, 'event', id, start, event.duration);
+  if (issue) {
+    setBoardStatus(issue);
+    return;
+  }
+
+  event.start = start;
+  saveEvents();
+  render();
+  setBoardStatus(`予定「${event.name}」を ${formatTime(start)} に移動しました。`);
 }
 
 function unplaceTask(id) {
@@ -168,24 +260,39 @@ function unplaceTask(id) {
   setBoardStatus(`「${task.name}」の配置を解除しました。`);
 }
 
-/* 所要時間の変更などで配置が成立しなくなった場合は解除する */
+function removeEvent(id) {
+  const event = events.find((e) => e.id === id);
+  if (!event) return;
+  if (!window.confirm(`予定「${event.name}」を削除しますか？`)) return;
+  events = events.filter((e) => e.id !== id);
+  if (editingEventId === id) resetEventForm();
+  saveEvents();
+  render();
+  setBoardStatus(`予定「${event.name}」を削除しました。`);
+}
+
+/* 所要時間の変更などで配置が成立しなくなったタスクは解除する（予定は動かさない） */
 function validatePlacements() {
-  const placed = tasks.filter((t) => t.placedAt !== null).sort((a, b) => a.placedAt - b.placedAt);
-  const kept = [];
+  const fixed = events.map((event) => ({ start: event.start, duration: event.duration }));
   const dropped = [];
 
-  placed.forEach((task) => {
-    const start = task.placedAt;
-    const fits = occupiedEnd(start, task) <= DAY_END;
-    const overlaps = kept.some((other) => !(start >= occupiedEnd(other.placedAt, other) ||
-      occupiedEnd(start, task) <= other.placedAt));
-    if (fits && !overlaps) {
-      kept.push(task);
-    } else {
-      task.placedAt = null;
-      dropped.push(task.name);
-    }
-  });
+  tasks
+    .filter((task) => task.placedAt !== null)
+    .sort((a, b) => a.placedAt - b.placedAt)
+    .forEach((task) => {
+      const start = task.placedAt;
+      const fits = start >= DAY_START &&
+        (start - DAY_START) % SLOT === 0 &&
+        occupiedEnd(start, task.duration) <= DAY_END;
+      const overlaps = fixed.some((item) => !(start >= occupiedEnd(item.start, item.duration) ||
+        occupiedEnd(start, task.duration) <= item.start));
+      if (fits && !overlaps) {
+        fixed.push({ start, duration: task.duration });
+      } else {
+        task.placedAt = null;
+        dropped.push(task.name);
+      }
+    });
 
   return dropped;
 }
@@ -432,7 +539,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   row.draggable = true;
   row.dataset.taskId = task.id;
   row.addEventListener('dragstart', (event) => {
-    event.dataTransfer.setData('text/plain', task.id);
+    event.dataTransfer.setData('text/plain', `task:${task.id}`);
     event.dataTransfer.effectAllowed = 'move';
     row.classList.add('dragging');
   });
@@ -529,17 +636,16 @@ function makeCell(text, className) {
 function renderBoard() {
   el.board.textContent = '';
 
-  const placedByStart = new Map();
+  const items = boardItems();
+  const byStart = new Map();
   const covered = new Set();
-  tasks
-    .filter((task) => task.placedAt !== null)
-    .forEach((task) => {
-      const index = Math.round((task.placedAt - DAY_START) / SLOT);
-      placedByStart.set(index, task);
-      for (let i = index; i < index + slotSpan(task); i += 1) covered.add(i);
-    });
+  items.forEach((item) => {
+    const index = Math.round((item.start - DAY_START) / SLOT);
+    byStart.set(index, item);
+    for (let i = index; i < index + slotSpan(item.duration); i += 1) covered.add(i);
+  });
 
-  el.clearPlacements.hidden = placedByStart.size === 0;
+  el.clearPlacements.hidden = !tasks.some((task) => task.placedAt !== null);
 
   const slotCount = (DAY_END - DAY_START) / SLOT;
   for (let index = 0; index < slotCount; index += 1) {
@@ -547,9 +653,9 @@ function renderBoard() {
     const row = document.createElement('tr');
     row.append(makeCell(`${formatTime(start)} 〜 ${formatTime(start + SLOT)}`, 'time'));
 
-    const task = placedByStart.get(index);
-    if (task) {
-      row.append(makePlacedCell(task, Math.min(slotSpan(task), slotCount - index)));
+    const item = byStart.get(index);
+    if (item) {
+      row.append(makeBoardCell(item, Math.min(slotSpan(item.duration), slotCount - index)));
     } else if (!covered.has(index)) {
       row.append(makeDropCell(start));
     }
@@ -557,33 +663,49 @@ function renderBoard() {
   }
 }
 
-function makePlacedCell(task, span) {
+function makeBoardCell(item, span) {
   const cell = document.createElement('td');
   cell.className = 'placed-cell';
   cell.rowSpan = span;
 
   const block = document.createElement('div');
-  block.className = 'placed';
+  block.className = 'placed' + (item.kind === 'event' ? ' is-event' : '');
   block.draggable = true;
-  block.dataset.taskId = task.id;
+  block.dataset.itemId = item.id;
   block.addEventListener('dragstart', (event) => {
-    event.dataTransfer.setData('text/plain', task.id);
+    event.dataTransfer.setData('text/plain', `${item.kind}:${item.id}`);
     event.dataTransfer.effectAllowed = 'move';
     block.classList.add('dragging');
   });
   block.addEventListener('dragend', () => block.classList.remove('dragging'));
 
-  const body = document.createElement('div');
-  const name = document.createElement('strong');
-  name.textContent = task.name;
-  const meta = makeSpan(
-    `${formatTime(task.placedAt)}〜${formatTime(task.placedAt + task.duration)}` +
-    `　優先順位 ${task.priority}・${formatDuration(task.duration)}`,
-    'placed-meta'
-  );
-  body.append(name, meta);
+  const handle = makeSpan('⠿', 'placed-handle');
+  handle.title = 'ドラッグして時間帯を移動';
 
-  block.append(body, makeButton('解除', () => unplaceTask(task.id), `${task.name} の配置を解除`));
+  const body = document.createElement('div');
+  body.className = 'placed-body';
+  const name = document.createElement('strong');
+  name.textContent = item.name;
+  const detail = item.kind === 'event'
+    ? `予定・${formatDuration(item.duration)}`
+    : `優先順位 ${item.priority}・${formatDuration(item.duration)}`;
+  body.append(
+    name,
+    makeSpan(`${formatTime(item.start)}〜${formatTime(item.start + item.duration)}　${detail}`, 'placed-meta')
+  );
+
+  const actions = document.createElement('div');
+  actions.className = 'placed-actions';
+  if (item.kind === 'event') {
+    actions.append(
+      makeButton('編集', () => startEventEdit(item.id), `予定 ${item.name} を編集`),
+      makeButton('削除', () => removeEvent(item.id), `予定 ${item.name} を削除`, true)
+    );
+  } else {
+    actions.append(makeButton('解除', () => unplaceTask(item.id), `${item.name} の配置を解除`));
+  }
+
+  block.append(handle, body, actions);
   cell.append(block);
   return cell;
 }
@@ -592,7 +714,7 @@ function makeDropCell(start) {
   const cell = document.createElement('td');
   cell.className = 'drop-cell';
   cell.dataset.start = String(start);
-  cell.textContent = '';
+  cell.title = 'クリックすると、この時間に予定を追加できます';
 
   cell.addEventListener('dragover', (event) => {
     event.preventDefault();
@@ -603,8 +725,18 @@ function makeDropCell(start) {
   cell.addEventListener('drop', (event) => {
     event.preventDefault();
     cell.classList.remove('drop-hover');
-    const id = event.dataTransfer.getData('text/plain');
-    if (id) placeTask(id, start);
+    const payload = event.dataTransfer.getData('text/plain');
+    if (!payload) return;
+    const separator = payload.indexOf(':');
+    if (separator < 0) return;
+    placeItem(payload.slice(0, separator), payload.slice(separator + 1), start);
+  });
+
+  /* 空きコマをクリックすると、その時刻で予定フォームを開く */
+  cell.addEventListener('click', () => {
+    el.eventStart.value = String(start);
+    el.eventName.focus();
+    setBoardStatus(`${formatTime(start)} 開始の予定を入力できます。`);
   });
 
   return cell;
@@ -682,16 +814,16 @@ function buildText(plan) {
     });
   }
 
-  const placed = tasks
-    .filter((task) => task.placedAt !== null)
-    .sort((a, b) => a.placedAt - b.placedAt);
-  if (placed.length > 0) {
+  const board = boardItems();
+  if (board.length > 0) {
     lines.push('');
-    lines.push('■ 手動スケジュール（ドラッグ＆ドロップで固定した時間）');
-    placed.forEach((task) => {
+    lines.push('■ 手動スケジュール（時間を固定したタスク・予定）');
+    board.forEach((item) => {
+      const detail = item.kind === 'event'
+        ? `予定・${formatDuration(item.duration)}`
+        : `優先${item.priority}・${formatDuration(item.duration)}`;
       lines.push(
-        `${formatTime(task.placedAt)}〜${formatTime(task.placedAt + task.duration)}  ${task.name}` +
-        `  [優先${task.priority}・${formatDuration(task.duration)}]`
+        `${formatTime(item.start)}〜${formatTime(item.start + item.duration)}  ${item.name}  [${detail}]`
       );
     });
   }
@@ -912,6 +1044,84 @@ el.clear.addEventListener('click', () => {
   render();
 });
 
+/* ---------- 予定（優先度なし）の入力 ---------- */
+
+function fillStartOptions() {
+  el.eventStart.textContent = '';
+  for (let start = DAY_START; start < DAY_END; start += SLOT) {
+    const option = document.createElement('option');
+    option.value = String(start);
+    option.textContent = formatTime(start);
+    el.eventStart.append(option);
+  }
+}
+
+function resetEventForm() {
+  editingEventId = null;
+  el.eventId.value = '';
+  el.eventName.value = '';
+  el.eventDuration.value = '60';
+  el.eventSubmit.textContent = '予定を追加';
+  el.eventCancel.hidden = true;
+}
+
+function startEventEdit(id) {
+  const event = events.find((e) => e.id === id);
+  if (!event) return;
+  editingEventId = id;
+  el.eventId.value = id;
+  el.eventName.value = event.name;
+  el.eventStart.value = String(event.start);
+  el.eventDuration.value = String(event.duration);
+  el.eventSubmit.textContent = '予定を更新';
+  el.eventCancel.hidden = false;
+  el.eventName.focus();
+}
+
+el.eventForm.addEventListener('submit', (submitEvent) => {
+  submitEvent.preventDefault();
+
+  const name = el.eventName.value.trim();
+  const start = Number(el.eventStart.value);
+  const duration = Number(el.eventDuration.value);
+
+  if (!name) {
+    setBoardStatus('予定名を入力してください。');
+    el.eventName.focus();
+    return;
+  }
+  if (!Number.isFinite(duration) || duration < 5 || duration > MAX_DURATION) {
+    setBoardStatus(`所要時間は5分〜${formatDuration(MAX_DURATION)}の範囲で入力してください。`);
+    el.eventDuration.focus();
+    return;
+  }
+
+  const id = editingEventId || `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const issue = placementIssue(name, 'event', id, start, duration);
+  if (issue) {
+    setBoardStatus(issue);
+    return;
+  }
+
+  if (editingEventId) {
+    const target = events.find((e) => e.id === editingEventId);
+    Object.assign(target, { name, start, duration });
+  } else {
+    events.push({ id, name, start, duration });
+  }
+
+  const label = editingEventId ? '更新' : '追加';
+  saveEvents();
+  resetEventForm();
+  render();
+  setBoardStatus(`予定「${name}」を ${formatTime(start)} に${label}しました。`);
+});
+
+el.eventCancel.addEventListener('click', () => {
+  resetEventForm();
+  setBoardStatus('予定の編集をキャンセルしました。');
+});
+
 el.clearPlacements.addEventListener('click', () => {
   if (!tasks.some((task) => task.placedAt !== null)) return;
   if (!window.confirm('手動スケジュールの配置をすべて解除しますか？')) return;
@@ -924,5 +1134,7 @@ el.clearPlacements.addEventListener('click', () => {
 el.copy.addEventListener('click', copyText);
 el.download.addEventListener('click', downloadText);
 
+fillStartOptions();
+resetEventForm();
 resetForm();
 render();

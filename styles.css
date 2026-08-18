@@ -304,7 +304,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .placed {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 10px;
   height: 100%;
   padding: 8px 10px;
@@ -313,6 +312,38 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   border-radius: 8px;
   cursor: grab;
 }
+.placed.is-event { background: var(--bg); border-color: var(--muted); border-style: dashed; }
 .placed.dragging { opacity: .45; }
-.placed strong { display: block; font-size: .92rem; }
+.placed-handle { flex: none; color: var(--muted); user-select: none; }
+.placed-body { flex: 1; min-width: 0; }
+.placed-actions { flex: none; display: flex; gap: 6px; }
+.placed strong { display: block; font-size: .92rem; overflow-wrap: anywhere; }
 .placed-meta { display: block; font-size: .76rem; color: var(--muted); }
+
+/* 予定の入力フォーム */
+.event-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.event-form .field { margin: 0; }
+.event-form .field:first-of-type { flex: 1 1 200px; }
+.event-form select {
+  padding: 9px 11px;
+  font: inherit;
+  font-size: .95rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.event-form input[type="number"] { width: 100px; }
+.event-form input[type="text"] { background: var(--surface); }
+.event-actions { display: flex; gap: 8px; }
+.board td.drop-cell { cursor: pointer; }
