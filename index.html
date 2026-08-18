@@ -59,7 +59,7 @@
   <!-- スケジュール -->
   <section class="panel wide" aria-labelledby="schedule-heading">
     <div class="panel-head">
-      <h2 id="schedule-heading">スケジュール（9:00〜18:00）</h2>
+      <h2 id="schedule-heading">自動スケジュール（優先順位順・9:00〜18:00）</h2>
       <p class="empty">優先順位と所要時間は、この表で直接変更できます。</p>
     </div>
     <div class="timeline" id="timeline" aria-hidden="true"></div>
@@ -67,6 +67,7 @@
       <table class="schedule" id="schedule-table">
         <thead>
           <tr>
+            <th scope="col"><span class="sr-only">ドラッグ</span></th>
             <th scope="col">時間</th>
             <th scope="col">優先順位</th>
             <th scope="col">タスク名</th>
@@ -76,6 +77,27 @@
         <tbody id="schedule-body"></tbody>
       </table>
     </div>
+  </section>
+
+  <!-- 手動スケジュール（ドラッグ＆ドロップ） -->
+  <section class="panel wide" aria-labelledby="board-heading">
+    <div class="panel-head">
+      <h2 id="board-heading">手動スケジュール（ドラッグ＆ドロップ）</h2>
+      <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
+    </div>
+    <p class="empty">上の自動スケジュール表の行を、この表の空いている時間帯にドラッグすると、その時刻に固定できます。配置後もドラッグで移動でき、「解除」で元に戻せます。</p>
+    <div class="table-scroll">
+      <table class="schedule board" id="board-table">
+        <thead>
+          <tr>
+            <th scope="col">時間</th>
+            <th scope="col">タスク</th>
+          </tr>
+        </thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="board-status" role="status" aria-live="polite"></p>
   </section>
 
   <!-- テキスト出力 -->

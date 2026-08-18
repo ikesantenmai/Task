@@ -8,6 +8,7 @@ const DAY_END = 18 * 60;    // 18:00
 const MAX_DURATION = DAY_END - DAY_START;
 const STORAGE_KEY = 'daily-task-scheduler/v1';
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
+const SLOT = 30;            // 手動スケジュールの1コマ（分）
 
 const el = {
   form: document.getElementById('task-form'),
@@ -28,6 +29,9 @@ const el = {
   exportStatus: document.getElementById('export-status'),
   copy: document.getElementById('copy-btn'),
   download: document.getElementById('download-btn'),
+  board: document.getElementById('board-body'),
+  boardStatus: document.getElementById('board-status'),
+  clearPlacements: document.getElementById('clear-placements'),
   dialog: document.getElementById('conflict-dialog'),
   dialogMessage: document.getElementById('conflict-message'),
   chooseMoving: document.getElementById('choose-moving'),
@@ -54,6 +58,7 @@ function load() {
         priority: clamp(Number(t.priority) || 1, 1, 99),
         duration: clamp(Number(t.duration) || 30, 5, MAX_DURATION),
         createdAt: Number(t.createdAt) || i,
+        placedAt: Number.isFinite(Number(t.placedAt)) ? Number(t.placedAt) : null,
       }))
       .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
     loaded.forEach((task, i) => { task.priority = i + 1; });
@@ -114,6 +119,75 @@ function buildSchedule() {
   }
 
   return { scheduled, unscheduled, freeMinutes: DAY_END - cursor };
+}
+
+/* ---------- 手動スケジュール（配置） ---------- */
+
+/* 表示上は30分単位のコマを占有するため、終了時刻もコマ単位に切り上げる */
+function slotSpan(task) {
+  return Math.max(1, Math.ceil(task.duration / SLOT));
+}
+
+function occupiedEnd(start, task) {
+  return start + slotSpan(task) * SLOT;
+}
+
+function canPlace(task, start) {
+  if (start < DAY_START || occupiedEnd(start, task) > DAY_END) return false;
+  return tasks.every((other) => {
+    if (other.id === task.id || other.placedAt === null) return true;
+    return start >= occupiedEnd(other.placedAt, other) || occupiedEnd(start, task) <= other.placedAt;
+  });
+}
+
+function placeTask(id, start) {
+  const task = tasks.find((t) => t.id === id);
+  if (!task) return;
+
+  if (occupiedEnd(start, task) > DAY_END) {
+    setBoardStatus(`「${task.name}」は ${formatTime(DAY_END)} を超えるため、この時間には配置できません。`);
+    return;
+  }
+  if (!canPlace(task, start)) {
+    setBoardStatus(`「${task.name}」は他の配置済みタスクと重なるため、この時間には配置できません。`);
+    return;
+  }
+
+  task.placedAt = start;
+  save();
+  render();
+  setBoardStatus(`「${task.name}」を ${formatTime(start)} に配置しました。`);
+}
+
+function unplaceTask(id) {
+  const task = tasks.find((t) => t.id === id);
+  if (!task || task.placedAt === null) return;
+  task.placedAt = null;
+  save();
+  render();
+  setBoardStatus(`「${task.name}」の配置を解除しました。`);
+}
+
+/* 所要時間の変更などで配置が成立しなくなった場合は解除する */
+function validatePlacements() {
+  const placed = tasks.filter((t) => t.placedAt !== null).sort((a, b) => a.placedAt - b.placedAt);
+  const kept = [];
+  const dropped = [];
+
+  placed.forEach((task) => {
+    const start = task.placedAt;
+    const fits = occupiedEnd(start, task) <= DAY_END;
+    const overlaps = kept.some((other) => !(start >= occupiedEnd(other.placedAt, other) ||
+      occupiedEnd(start, task) <= other.placedAt));
+    if (fits && !overlaps) {
+      kept.push(task);
+    } else {
+      task.placedAt = null;
+      dropped.push(task.name);
+    }
+  });
+
+  return dropped;
 }
 
 /* ---------- 優先順位の変更 ---------- */
@@ -214,12 +288,18 @@ async function insertTask(task, desiredRank) {
 /* ---------- 描画 ---------- */
 
 function render() {
+  const dropped = validatePlacements();
   const plan = buildSchedule();
   renderList();
   renderTimeline(plan);
   renderTable(plan);
+  renderBoard();
   renderSummary(plan);
   renderExport(plan);
+  if (dropped.length) {
+    save();
+    setBoardStatus(`${dropped.map((name) => `「${name}」`).join('、')}は時間が収まらなくなったため配置を解除しました。`);
+  }
 }
 
 function renderList() {
@@ -300,7 +380,7 @@ function renderTable(plan) {
   if (tasks.length === 0) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.className = 'center';
     cell.textContent = 'タスクを追加するとスケジュールが表示されます。';
     row.append(cell);
@@ -319,6 +399,7 @@ function renderTable(plan) {
     const row = document.createElement('tr');
     row.className = 'gap';
     row.append(
+      makeCell('', 'handle-cell'),
       makeCell(`${formatTime(last)} 〜 ${formatTime(DAY_END)}`, 'time'),
       makeCell('—'),
       makeCell('空き時間'),
@@ -331,7 +412,7 @@ function renderTable(plan) {
     const head = document.createElement('tr');
     head.className = 'section-row';
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.textContent = '割り当てできなかったタスク（9:00〜18:00 に収まりません。優先順位か所要時間を見直してください）';
     head.append(cell);
     el.scheduleBody.append(head);
@@ -346,6 +427,21 @@ function renderTable(plan) {
 function makeTaskRow(task, timeLabel, unscheduled) {
   const row = document.createElement('tr');
   if (unscheduled) row.className = 'unscheduled';
+
+  /* 下の手動スケジュールへドラッグできるようにする */
+  row.draggable = true;
+  row.dataset.taskId = task.id;
+  row.addEventListener('dragstart', (event) => {
+    event.dataTransfer.setData('text/plain', task.id);
+    event.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+  row.addEventListener('dragend', () => row.classList.remove('dragging'));
+
+  const handleCell = document.createElement('td');
+  handleCell.className = 'handle-cell';
+  handleCell.title = 'ドラッグして下の手動スケジュールに配置';
+  handleCell.textContent = '⠿';
 
   const priorityCell = document.createElement('td');
   priorityCell.append(
@@ -377,12 +473,12 @@ function makeTaskRow(task, timeLabel, unscheduled) {
     makeSpan(formatDuration(task.duration), 'cell-note')
   );
 
-  row.append(
-    makeCell(timeLabel, 'time'),
-    priorityCell,
-    makeCell(task.name),
-    durationCell
-  );
+  const nameCell = makeCell(task.name);
+  if (task.placedAt !== null) {
+    nameCell.append(makeSpan(`配置済み ${formatTime(task.placedAt)}`, 'badge'));
+  }
+
+  row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell);
   return row;
 }
 
@@ -426,6 +522,102 @@ function makeCell(text, className) {
   if (className) cell.className = className;
   cell.textContent = text;
   return cell;
+}
+
+/* ---------- 手動スケジュールの描画 ---------- */
+
+function renderBoard() {
+  el.board.textContent = '';
+
+  const placedByStart = new Map();
+  const covered = new Set();
+  tasks
+    .filter((task) => task.placedAt !== null)
+    .forEach((task) => {
+      const index = Math.round((task.placedAt - DAY_START) / SLOT);
+      placedByStart.set(index, task);
+      for (let i = index; i < index + slotSpan(task); i += 1) covered.add(i);
+    });
+
+  el.clearPlacements.hidden = placedByStart.size === 0;
+
+  const slotCount = (DAY_END - DAY_START) / SLOT;
+  for (let index = 0; index < slotCount; index += 1) {
+    const start = DAY_START + index * SLOT;
+    const row = document.createElement('tr');
+    row.append(makeCell(`${formatTime(start)} 〜 ${formatTime(start + SLOT)}`, 'time'));
+
+    const task = placedByStart.get(index);
+    if (task) {
+      row.append(makePlacedCell(task, Math.min(slotSpan(task), slotCount - index)));
+    } else if (!covered.has(index)) {
+      row.append(makeDropCell(start));
+    }
+    el.board.append(row);
+  }
+}
+
+function makePlacedCell(task, span) {
+  const cell = document.createElement('td');
+  cell.className = 'placed-cell';
+  cell.rowSpan = span;
+
+  const block = document.createElement('div');
+  block.className = 'placed';
+  block.draggable = true;
+  block.dataset.taskId = task.id;
+  block.addEventListener('dragstart', (event) => {
+    event.dataTransfer.setData('text/plain', task.id);
+    event.dataTransfer.effectAllowed = 'move';
+    block.classList.add('dragging');
+  });
+  block.addEventListener('dragend', () => block.classList.remove('dragging'));
+
+  const body = document.createElement('div');
+  const name = document.createElement('strong');
+  name.textContent = task.name;
+  const meta = makeSpan(
+    `${formatTime(task.placedAt)}〜${formatTime(task.placedAt + task.duration)}` +
+    `　優先順位 ${task.priority}・${formatDuration(task.duration)}`,
+    'placed-meta'
+  );
+  body.append(name, meta);
+
+  block.append(body, makeButton('解除', () => unplaceTask(task.id), `${task.name} の配置を解除`));
+  cell.append(block);
+  return cell;
+}
+
+function makeDropCell(start) {
+  const cell = document.createElement('td');
+  cell.className = 'drop-cell';
+  cell.dataset.start = String(start);
+  cell.textContent = '';
+
+  cell.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    cell.classList.add('drop-hover');
+  });
+  cell.addEventListener('dragleave', () => cell.classList.remove('drop-hover'));
+  cell.addEventListener('drop', (event) => {
+    event.preventDefault();
+    cell.classList.remove('drop-hover');
+    const id = event.dataTransfer.getData('text/plain');
+    if (id) placeTask(id, start);
+  });
+
+  return cell;
+}
+
+let boardStatusTimer = 0;
+
+function setBoardStatus(message) {
+  el.boardStatus.textContent = message;
+  window.clearTimeout(boardStatusTimer);
+  if (message) {
+    boardStatusTimer = window.setTimeout(() => { el.boardStatus.textContent = ''; }, 4000);
+  }
 }
 
 function renderSummary(plan) {
@@ -487,6 +679,20 @@ function buildText(plan) {
     lines.push('■ 割り当てできなかったタスク');
     plan.unscheduled.forEach((task) => {
       lines.push(`- ${task.name}  [優先${task.priority}・${formatDuration(task.duration)}]`);
+    });
+  }
+
+  const placed = tasks
+    .filter((task) => task.placedAt !== null)
+    .sort((a, b) => a.placedAt - b.placedAt);
+  if (placed.length > 0) {
+    lines.push('');
+    lines.push('■ 手動スケジュール（ドラッグ＆ドロップで固定した時間）');
+    placed.forEach((task) => {
+      lines.push(
+        `${formatTime(task.placedAt)}〜${formatTime(task.placedAt + task.duration)}  ${task.name}` +
+        `  [優先${task.priority}・${formatDuration(task.duration)}]`
+      );
     });
   }
 
@@ -679,6 +885,7 @@ el.form.addEventListener('submit', async (event) => {
     const task = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
+      placedAt: null,
       ...input,
     };
     const inserted = await insertTask(task, input.priority);
@@ -703,6 +910,15 @@ el.clear.addEventListener('click', () => {
   save();
   resetForm();
   render();
+});
+
+el.clearPlacements.addEventListener('click', () => {
+  if (!tasks.some((task) => task.placedAt !== null)) return;
+  if (!window.confirm('手動スケジュールの配置をすべて解除しますか？')) return;
+  tasks.forEach((task) => { task.placedAt = null; });
+  save();
+  render();
+  setBoardStatus('すべての配置を解除しました。');
 });
 
 el.copy.addEventListener('click', copyText);
