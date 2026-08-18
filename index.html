@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1日のタスクスケジューラー</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <h1>1日のタスクスケジューラー</h1>
+  <p class="lead">タスク・優先順位・所要時間を入力すると、優先度の高いタスクから <strong>9:00〜18:00</strong> に自動で割り当てます。</p>
+</header>
+
+<main class="layout">
+  <!-- 入力 -->
+  <section class="panel" aria-labelledby="form-heading">
+    <h2 id="form-heading">タスクを追加</h2>
+    <form id="task-form" novalidate>
+      <input type="hidden" id="task-id">
+
+      <div class="field">
+        <label for="task-name">タスク名</label>
+        <input type="text" id="task-name" placeholder="例：企画書の作成" maxlength="60" required>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="task-priority">優先順位<span class="hint">（1が最優先）</span></label>
+          <input type="number" id="task-priority" min="1" max="99" step="1" value="1" required>
+        </div>
+        <div class="field">
+          <label for="task-duration">所要時間<span class="hint">（分）</span></label>
+          <input type="number" id="task-duration" min="5" max="540" step="5" value="60" required>
+        </div>
+      </div>
+
+      <p class="error" id="form-error" role="alert" hidden></p>
+
+      <div class="form-actions">
+        <button type="submit" class="btn primary" id="submit-btn">追加する</button>
+        <button type="button" class="btn ghost" id="cancel-btn" hidden>キャンセル</button>
+      </div>
+    </form>
+
+    <div class="summary" id="summary" aria-live="polite"></div>
+  </section>
+
+  <!-- タスク一覧 -->
+  <section class="panel" aria-labelledby="list-heading">
+    <div class="panel-head">
+      <h2 id="list-heading">タスク一覧</h2>
+      <button type="button" class="btn ghost danger" id="clear-btn">すべて削除</button>
+    </div>
+    <ul class="task-list" id="task-list"></ul>
+    <p class="empty" id="list-empty">まだタスクがありません。左のフォームから追加してください。</p>
+  </section>
+
+  <!-- スケジュール -->
+  <section class="panel wide" aria-labelledby="schedule-heading">
+    <h2 id="schedule-heading">スケジュール（9:00〜18:00）</h2>
+    <div class="timeline" id="timeline" aria-hidden="true"></div>
+    <table class="schedule" id="schedule-table">
+      <thead>
+        <tr><th scope="col">時間</th><th scope="col">優先順位</th><th scope="col">タスク名</th><th scope="col">所要時間</th></tr>
+      </thead>
+      <tbody id="schedule-body"></tbody>
+    </table>
+    <div class="overflow" id="overflow" hidden>
+      <h3>割り当てできなかったタスク</h3>
+      <p class="empty">9:00〜18:00 に収まらなかったため、翌日以降に回すか所要時間を見直してください。</p>
+      <ul id="overflow-list"></ul>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
