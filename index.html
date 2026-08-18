@@ -88,8 +88,16 @@
   <section class="panel wide" aria-labelledby="board-heading">
     <div class="panel-head">
       <h2 id="board-heading">週間スケジュール（ドラッグ＆ドロップ）</h2>
-      <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
+      <div class="head-actions">
+        <div class="week-nav">
+          <button type="button" class="btn ghost btn-small" id="prev-week" aria-label="前の週を表示">← 前週</button>
+          <button type="button" class="btn ghost btn-small" id="this-week">今週</button>
+          <button type="button" class="btn ghost btn-small" id="next-week" aria-label="次の週を表示">翌週 →</button>
+        </div>
+        <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
+      </div>
     </div>
+    <p class="week-label" id="week-label"></p>
     <p class="empty">上の自動スケジュール表の行を、この週間表の空いている時間帯にドラッグすると、その日時に固定できます。優先度のない予定（会議・昼休みなど）は下のフォームから直接追加できます。配置したタスク・予定は、どちらも週内の別の日時へドラッグで移動できます（スマートフォン・タブレットのタッチ操作にも対応）。</p>
 
     <form class="event-form" id="event-form" novalidate>

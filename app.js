@@ -12,10 +12,10 @@ const WEEK_LENGTH = 7;
 const WEEK_NAMES = ['月', '火', '水', '木', '金', '土', '日'];
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
 
-const STORAGE_KEY = 'daily-task-scheduler/v2';
-const EVENTS_KEY = 'daily-task-scheduler/events/v2';
-const LEGACY_STORAGE_KEY = 'daily-task-scheduler/v1';
-const LEGACY_EVENTS_KEY = 'daily-task-scheduler/events/v1';
+const STORAGE_KEY = 'daily-task-scheduler/v3';
+const EVENTS_KEY = 'daily-task-scheduler/events/v3';
+const LEGACY_STORAGE_KEYS = ['daily-task-scheduler/v2', 'daily-task-scheduler/v1'];
+const LEGACY_EVENTS_KEYS = ['daily-task-scheduler/events/v2', 'daily-task-scheduler/events/v1'];
 
 const el = {
   form: document.getElementById('task-form'),
@@ -37,6 +37,10 @@ const el = {
   board: document.getElementById('board-body'),
   boardStatus: document.getElementById('board-status'),
   clearPlacements: document.getElementById('clear-placements'),
+  weekLabel: document.getElementById('week-label'),
+  prevWeek: document.getElementById('prev-week'),
+  thisWeek: document.getElementById('this-week'),
+  nextWeek: document.getElementById('next-week'),
   eventForm: document.getElementById('event-form'),
   eventId: document.getElementById('event-id'),
   eventName: document.getElementById('event-name'),
@@ -63,43 +67,86 @@ const el = {
 };
 
 /* ---------- 週（月曜始まり）の日付 ---------- */
+/* 配置は日付（YYYY-MM-DD）で保持し、週間表は表示中の週だけを描画する。 */
 
-const WEEK_START = mondayOfThisWeek();
+const THIS_MONDAY = mondayOf(new Date());
+let weekOffset = 0;                 // 0＝今週、-1＝前週、1＝翌週
 
-function mondayOfThisWeek() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+function startOfDay(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function mondayOf(date) {
+  const copy = startOfDay(date);
+  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7));
+  return copy;
+}
+
+function viewedMonday() {
+  const date = new Date(THIS_MONDAY);
+  date.setDate(date.getDate() + weekOffset * 7);
   return date;
 }
 
-function todayIndex() {
-  return (new Date().getDay() + 6) % 7;
-}
-
-function dayDate(index) {
-  const date = new Date(WEEK_START);
-  date.setDate(date.getDate() + index);
-  return date;
-}
-
-function dayLabel(index) {
-  const date = dayDate(index);
-  return `${date.getMonth() + 1}/${date.getDate()}（${WEEK_NAMES[index]}）`;
-}
-
-function dayLabelLong(index) {
-  const date = dayDate(index);
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${WEEK_NAMES[index]}）`;
-}
-
-function dayStamp(index) {
-  const date = dayDate(index);
+function isoDate(date) {
   return [
     date.getFullYear(),
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0'),
   ].join('-');
+}
+
+function dayDate(index) {
+  const date = viewedMonday();
+  date.setDate(date.getDate() + index);
+  return date;
+}
+
+/* 表示中の週の index 番目（0＝月曜）の日付キー */
+function dayKey(index) {
+  return isoDate(dayDate(index));
+}
+
+function keyToDate(key) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  return parts ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])) : null;
+}
+
+function todayKey() {
+  return isoDate(new Date());
+}
+
+function labelOfKey(key, withYear) {
+  const date = keyToDate(key);
+  if (!date) return key || '';
+  const name = WEEK_NAMES[(date.getDay() + 6) % 7];
+  return withYear
+    ? `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${name}）`
+    : `${date.getMonth() + 1}/${date.getDate()}（${name}）`;
+}
+
+function dayLabel(index) {
+  return labelOfKey(dayKey(index));
+}
+
+function dayLabelLong(index) {
+  return labelOfKey(dayKey(index), true);
+}
+
+/* 表示中の週で、今日にあたる列（無ければ -1） */
+function todayIndex() {
+  for (let index = 0; index < WEEK_LENGTH; index += 1) {
+    if (dayKey(index) === todayKey()) return index;
+  }
+  return -1;
+}
+
+/* 予定フォームなどの初期値に使う列（今日が週内にないときは月曜） */
+function defaultDayIndex() {
+  const index = todayIndex();
+  return index < 0 ? 0 : index;
 }
 
 /* ---------- ユーティリティ ---------- */
@@ -133,34 +180,44 @@ function renumber() {
 
 /* ---------- 永続化 ---------- */
 
-function readJson(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch (e) {
-    return null;
+function readJson(keys) {
+  for (const key of [].concat(keys)) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      /* 壊れているデータは無視して次を試す */
+    }
   }
+  return null;
 }
 
-/* 配置情報は {day, start}。旧形式（分だけの数値）は当日の予定として引き継ぐ。 */
+/* 旧データの曜日番号（0＝月曜）を、今週の日付に読み替える */
+function keyFromWeekday(day) {
+  const date = new Date(THIS_MONDAY);
+  date.setDate(date.getDate() + clamp(Number(day) || 0, 0, WEEK_LENGTH - 1));
+  return isoDate(date);
+}
+
+/* 配置情報は {date, start}。
+ * 旧形式（曜日番号 {day, start} や、分だけの数値）は今週の日付に読み替える。 */
 function normalizePlacement(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return { day: todayIndex(), start: snapToSlot(clamp(value, DAY_START, DAY_END - SLOT)) };
+    return { date: todayKey(), start: snapToSlot(clamp(value, DAY_START, DAY_END - SLOT)) };
   }
   if (typeof value === 'object' && Number.isFinite(Number(value.start))) {
-    return {
-      day: clamp(Number(value.day) || 0, 0, WEEK_LENGTH - 1),
-      start: snapToSlot(clamp(Number(value.start), DAY_START, DAY_END - SLOT)),
-    };
+    const start = snapToSlot(clamp(Number(value.start), DAY_START, DAY_END - SLOT));
+    if (keyToDate(value.date)) return { date: value.date, start };
+    return { date: keyFromWeekday(value.day), start };
   }
   return null;
 }
 
 function load() {
-  const stored = readJson(STORAGE_KEY) || readJson(LEGACY_STORAGE_KEY) || [];
+  const stored = readJson([STORAGE_KEY].concat(LEGACY_STORAGE_KEYS)) || [];
   const loaded = stored
     .filter((t) => t && typeof t.name === 'string')
     .map((t, i) => ({
@@ -177,13 +234,13 @@ function load() {
 }
 
 function loadEvents() {
-  const stored = readJson(EVENTS_KEY) || readJson(LEGACY_EVENTS_KEY) || [];
+  const stored = readJson([EVENTS_KEY].concat(LEGACY_EVENTS_KEYS)) || [];
   return stored
     .filter((e) => e && typeof e.name === 'string' && Number.isFinite(Number(e.start)))
     .map((e, i) => ({
       id: String(e.id || `event-${Date.now()}-${i}`),
       name: e.name,
-      day: Number.isFinite(Number(e.day)) ? clamp(Number(e.day), 0, WEEK_LENGTH - 1) : todayIndex(),
+      date: keyToDate(e.date) ? e.date : keyFromWeekday(e.day),
       start: snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
       duration: clamp(Number(e.duration) || 30, 5, MAX_DURATION),
       priority: Number(e.priority) > 0 ? clamp(Number(e.priority), 1, 99) : null,
@@ -243,15 +300,15 @@ function occupiedEnd(start, duration) {
   return start + slotSpan(duration) * SLOT;
 }
 
-/* 週間スケジュールに並ぶもの＝配置済みタスクと予定 */
-function boardItems(day) {
+/* 週間スケジュールに並ぶもの＝配置済みタスクと予定（すべての週） */
+function allBoardItems() {
   const placedTasks = tasks
     .filter((task) => task.placedAt !== null)
     .map((task) => ({
       kind: 'task',
       id: task.id,
       name: task.name,
-      day: task.placedAt.day,
+      date: task.placedAt.date,
       start: task.placedAt.start,
       duration: task.duration,
       priority: task.priority,
@@ -260,19 +317,26 @@ function boardItems(day) {
     kind: 'event',
     id: event.id,
     name: event.name,
-    day: event.day,
+    date: event.date,
     start: event.start,
     duration: event.duration,
     priority: event.priority || null,
   }));
-  return placedTasks
-    .concat(eventItems)
-    .filter((item) => day === undefined || item.day === day)
-    .sort((a, b) => a.day - b.day || a.start - b.start);
+  return placedTasks.concat(eventItems);
 }
 
-function isFree(kind, id, day, start, duration) {
-  return boardItems(day).every((item) => {
+/* date を渡すとその日、省略すると表示中の週の項目を返す */
+function boardItems(date) {
+  const keys = date === undefined
+    ? new Set(Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)))
+    : new Set([date]);
+  return allBoardItems()
+    .filter((item) => keys.has(item.date))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+}
+
+function isFree(kind, id, date, start, duration) {
+  return boardItems(date).every((item) => {
     if (item.kind === kind && item.id === id) return true;
     return start >= occupiedEnd(item.start, item.duration) ||
       occupiedEnd(start, duration) <= item.start;
@@ -280,32 +344,32 @@ function isFree(kind, id, day, start, duration) {
 }
 
 /* 配置できない理由を返す（配置できる場合は null） */
-function placementIssue(name, kind, id, day, start, duration) {
+function placementIssue(name, kind, id, date, start, duration) {
   if (start < DAY_START || occupiedEnd(start, duration) > DAY_END) {
     return `「${name}」は ${formatTime(DAY_END)} を超えるため、この時間には配置できません。`;
   }
-  if (!isFree(kind, id, day, start, duration)) {
-    return `「${name}」は ${dayLabel(day)} の他のタスク・予定と重なるため、この時間には配置できません。`;
+  if (!isFree(kind, id, date, start, duration)) {
+    return `「${name}」は ${labelOfKey(date)} の他のタスク・予定と重なるため、この時間には配置できません。`;
   }
   return null;
 }
 
-function placeItem(kind, id, day, start) {
-  if (kind === 'event') return moveEvent(id, day, start);
+function placeItem(kind, id, date, start) {
+  if (kind === 'event') return moveEvent(id, date, start);
 
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
 
-  const issue = placementIssue(task.name, 'task', id, day, start, task.duration);
+  const issue = placementIssue(task.name, 'task', id, date, start, task.duration);
   if (issue) {
     setBoardStatus(issue);
     return;
   }
 
-  task.placedAt = { day, start };
+  task.placedAt = { date, start };
   save();
   render();
-  setBoardStatus(`「${task.name}」を ${dayLabel(day)} ${formatTime(start)} に配置しました。`);
+  setBoardStatus(`「${task.name}」を ${labelOfKey(date)} ${formatTime(start)} に配置しました。`);
 }
 
 /* 一覧から外したタスク（優先順位あり）は「予定」と呼ばないようにする */
@@ -313,21 +377,21 @@ function eventLabel(event) {
   return event.priority ? `「${event.name}」` : `予定「${event.name}」`;
 }
 
-function moveEvent(id, day, start) {
+function moveEvent(id, date, start) {
   const event = events.find((e) => e.id === id);
   if (!event) return;
 
-  const issue = placementIssue(event.name, 'event', id, day, start, event.duration);
+  const issue = placementIssue(event.name, 'event', id, date, start, event.duration);
   if (issue) {
     setBoardStatus(issue);
     return;
   }
 
-  event.day = day;
+  event.date = date;
   event.start = start;
   saveEvents();
   render();
-  setBoardStatus(`${eventLabel(event)}を ${dayLabel(day)} ${formatTime(start)} に移動しました。`);
+  setBoardStatus(`${eventLabel(event)}を ${labelOfKey(date)} ${formatTime(start)} に移動しました。`);
 }
 
 function unplaceTask(id) {
@@ -353,22 +417,23 @@ function removeEvent(id) {
 
 /* 所要時間の変更などで配置が成立しなくなったタスクは解除する（予定は動かさない） */
 function validatePlacements() {
-  const fixed = events.map((event) => ({ day: event.day, start: event.start, duration: event.duration }));
+  const fixed = events.map((event) => ({ date: event.date, start: event.start, duration: event.duration }));
   const dropped = [];
 
   tasks
     .filter((task) => task.placedAt !== null)
-    .sort((a, b) => a.placedAt.day - b.placedAt.day || a.placedAt.start - b.placedAt.start)
+    .sort((a, b) => (a.placedAt.date < b.placedAt.date ? -1
+      : a.placedAt.date > b.placedAt.date ? 1 : a.placedAt.start - b.placedAt.start))
     .forEach((task) => {
-      const { day, start } = task.placedAt;
+      const { date, start } = task.placedAt;
       const fits = start >= DAY_START &&
         (start - DAY_START) % SLOT === 0 &&
         occupiedEnd(start, task.duration) <= DAY_END;
-      const overlaps = fixed.some((item) => item.day === day &&
+      const overlaps = fixed.some((item) => item.date === date &&
         !(start >= occupiedEnd(item.start, item.duration) ||
           occupiedEnd(start, task.duration) <= item.start));
       if (fits && !overlaps) {
-        fixed.push({ day, start, duration: task.duration });
+        fixed.push({ date, start, duration: task.duration });
       } else {
         task.placedAt = null;
         dropped.push(task.name);
@@ -656,7 +721,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   const nameCell = makeCell(task.name);
   if (task.placedAt !== null) {
     nameCell.append(
-      makeSpan(`配置済み ${dayLabel(task.placedAt.day)} ${formatTime(task.placedAt.start)}`, 'badge')
+      makeSpan(`配置済み ${labelOfKey(task.placedAt.date)} ${formatTime(task.placedAt.start)}`, 'badge')
     );
   }
 
@@ -664,25 +729,27 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   addCell.className = 'add-cell';
   const daySelect = document.createElement('select');
   daySelect.className = 'cell-select';
-  daySelect.setAttribute('aria-label', `${task.name} を追加する曜日`);
+  daySelect.setAttribute('aria-label', `${task.name} を追加する日`);
   for (let day = 0; day < WEEK_LENGTH; day += 1) {
     const option = document.createElement('option');
-    option.value = String(day);
+    option.value = dayKey(day);
     option.textContent = dayLabel(day);
     daySelect.append(option);
   }
-  daySelect.value = String(task.placedAt ? task.placedAt.day : todayIndex());
+  const placedInWeek = task.placedAt &&
+    Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)).includes(task.placedAt.date);
+  daySelect.value = placedInWeek ? task.placedAt.date : dayKey(defaultDayIndex());
   addCell.append(
     daySelect,
-    makeButton('追加', () => addTaskToDay(task.id, Number(daySelect.value)), `${task.name} を選んだ曜日に追加`)
+    makeButton('追加', () => addTaskToDay(task.id, daySelect.value), `${task.name} を選んだ日に追加`)
   );
 
   row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell, addCell);
   return row;
 }
 
-/* 選んだ曜日の空いている時間に、自動スケジュールの時刻を優先して配置する */
-function addTaskToDay(id, day) {
+/* 選んだ日の空いている時間に、自動スケジュールの時刻を優先して配置する */
+function addTaskToDay(id, date) {
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
 
@@ -692,13 +759,13 @@ function addTaskToDay(id, day) {
   for (let start = DAY_START; start < DAY_END; start += SLOT) candidates.push(start);
 
   const target = candidates.find((start) =>
-    placementIssue(task.name, 'task', id, day, start, task.duration) === null);
+    placementIssue(task.name, 'task', id, date, start, task.duration) === null);
 
   if (target === undefined) {
-    setBoardStatus(`${dayLabel(day)} には「${task.name}」（${formatDuration(task.duration)}）を置ける空き時間がありません。`);
+    setBoardStatus(`${labelOfKey(date)} には「${task.name}」（${formatDuration(task.duration)}）を置ける空き時間がありません。`);
     return;
   }
-  placeItem('task', id, day, target);
+  placeItem('task', id, date, target);
 }
 
 function makeNumberInput(options) {
@@ -746,6 +813,7 @@ function makeCell(text, className) {
 /* ---------- 週間スケジュールの描画 ---------- */
 
 function renderBoard() {
+  renderWeekLabel();
   el.boardHead.textContent = '';
   el.board.textContent = '';
 
@@ -762,12 +830,12 @@ function renderBoard() {
     el.boardHead.append(cell);
   }
 
-  const byStart = new Map();   // `${day}:${slotIndex}` -> item
+  const byStart = new Map();   // `${date}:${slotIndex}` -> item
   const covered = new Set();
   boardItems().forEach((item) => {
     const index = Math.round((item.start - DAY_START) / SLOT);
-    byStart.set(`${item.day}:${index}`, item);
-    for (let i = index; i < index + slotSpan(item.duration); i += 1) covered.add(`${item.day}:${i}`);
+    byStart.set(`${item.date}:${index}`, item);
+    for (let i = index; i < index + slotSpan(item.duration); i += 1) covered.add(`${item.date}:${i}`);
   });
 
   el.clearPlacements.hidden = !tasks.some((task) => task.placedAt !== null);
@@ -779,20 +847,43 @@ function renderBoard() {
     row.append(makeCell(`${formatTime(start)} 〜 ${formatTime(start + SLOT)}`, 'time'));
 
     for (let day = 0; day < WEEK_LENGTH; day += 1) {
-      const item = byStart.get(`${day}:${index}`);
+      const date = dayKey(day);
+      const item = byStart.get(`${date}:${index}`);
       if (item) {
         row.append(makeBoardCell(item, Math.min(slotSpan(item.duration), slotCount - index)));
-      } else if (!covered.has(`${day}:${index}`)) {
-        row.append(makeDropCell(day, start));
+      } else if (!covered.has(`${date}:${index}`)) {
+        row.append(makeDropCell(date, start, day === todayIndex()));
       }
     }
     el.board.append(row);
   }
 }
 
+function renderWeekLabel() {
+  const weekKeys = new Set(Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)));
+  const others = allBoardItems().filter((item) => !weekKeys.has(item.date)).length;
+
+  el.weekLabel.textContent = `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)}` +
+    (weekOffset === 0 ? '（今週）' : weekOffset === -1 ? '（前週）' : weekOffset === 1 ? '（翌週）' : '');
+  if (others > 0) {
+    el.weekLabel.append(makeSpan(`他の週に ${others}件`, 'other-week'));
+  }
+  el.thisWeek.classList.toggle('is-current', weekOffset === 0);
+  el.thisWeek.disabled = weekOffset === 0;
+}
+
+/* 週を切り替える。日の選択肢も表示中の週に合わせ直す。 */
+function showWeek(offset) {
+  weekOffset = offset;
+  fillSelectOptions();
+  resetEventForm();
+  render();
+  setBoardStatus(`${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} を表示しています。`);
+}
+
 function makeBoardCell(item, span) {
   const cell = document.createElement('td');
-  cell.className = 'placed-cell' + (item.day === todayIndex() ? ' is-today' : '');
+  cell.className = 'placed-cell' + (item.date === todayKey() ? ' is-today' : '');
   cell.rowSpan = span;
 
   const isPlainEvent = item.kind === 'event' && !item.priority;
@@ -828,21 +919,21 @@ function makeBoardCell(item, span) {
   return cell;
 }
 
-function makeDropCell(day, start) {
+function makeDropCell(date, start, isToday) {
   const cell = document.createElement('td');
-  cell.className = 'drop-cell' + (day === todayIndex() ? ' is-today' : '');
-  cell.dataset.day = String(day);
+  cell.className = 'drop-cell' + (isToday ? ' is-today' : '');
+  cell.dataset.date = date;
   cell.dataset.start = String(start);
-  cell.title = `${dayLabel(day)} ${formatTime(start)}　クリックすると、この時間に予定を追加できます`;
+  cell.title = `${labelOfKey(date)} ${formatTime(start)}　クリックすると、この時間に予定を追加できます`;
 
   /* 空きコマをタップ／クリックすると、その日時で予定フォームを開く
    * （ドラッグ直後に合成されるクリックは無視する） */
   cell.addEventListener('click', () => {
     if (dragState || Date.now() - dragEndedAt < 400) return;
-    el.eventDay.value = String(day);
+    el.eventDay.value = date;
     el.eventStart.value = String(start);
     el.eventName.focus();
-    setBoardStatus(`${dayLabel(day)} ${formatTime(start)} 開始の予定を入力できます。`);
+    setBoardStatus(`${labelOfKey(date)} ${formatTime(start)} 開始の予定を入力できます。`);
   });
 
   return cell;
@@ -961,7 +1052,7 @@ function onDragEnd(event) {
   const cell = dropCellFromPoint(event.clientX, event.clientY);
   finishDrag();
   if (cell) {
-    placeItem(kind, id, Number(cell.dataset.day), Number(cell.dataset.start));
+    placeItem(kind, id, cell.dataset.date, Number(cell.dataset.start));
   }
 }
 
@@ -1023,21 +1114,19 @@ function exportRange() {
   return checked ? checked.value : 'day';
 }
 
-function selectedDay() {
-  const value = Number(el.exportDay.value);
-  return Number.isFinite(value) ? clamp(value, 0, WEEK_LENGTH - 1) : todayIndex();
+function selectedDate() {
+  return keyToDate(el.exportDay.value) ? el.exportDay.value : dayKey(defaultDayIndex());
 }
 
 /* 出力する行。週単位は1週間分＋未配置タスク、日単位はその日の分＋未配置タスク。 */
 function exportRows() {
   const isWeek = exportRange() === 'week';
-  const day = selectedDay();
-  const items = isWeek ? boardItems() : boardItems(day);
+  const items = isWeek ? boardItems() : boardItems(selectedDate());
 
   const rows = items.map((item) => [
     item.kind === 'event' && !item.priority ? '予定' : 'タスク',
-    WEEK_NAMES[item.day],
-    dayStamp(item.day),
+    WEEK_NAMES[(keyToDate(item.date).getDay() + 6) % 7],
+    item.date,
     formatTime(item.start),
     formatTime(item.start + item.duration),
     item.name,
@@ -1082,16 +1171,16 @@ function renderExport() {
 
 function downloadWorkbook() {
   const isWeek = exportRange() === 'week';
-  const sheetName = isWeek ? '週間スケジュール' : `${dayStamp(selectedDay())}`;
+  const sheetName = isWeek ? '週間スケジュール' : selectedDate();
   const title = isWeek
     ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
-    : `${dayLabelLong(selectedDay())} のスケジュール`;
+    : `${labelOfKey(selectedDate(), true)} のスケジュール`;
 
   const rows = [[title], ['範囲', isWeek ? '週単位' : '日単位'], EXPORT_HEADER].concat(exportRows());
   const blob = XLSX.build(sheetName, rows, EXPORT_WIDTHS);
   const fileName = isWeek
-    ? `schedule-week-${dayStamp(0)}.xlsx`
-    : `schedule-${dayStamp(selectedDay())}.xlsx`;
+    ? `schedule-week-${dayKey(0)}.xlsx`
+    : `schedule-${selectedDate()}.xlsx`;
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -1116,6 +1205,7 @@ function parseRows(rows) {
   const columns = {
     kind: column('種別'),
     day: column('曜日'),
+    date: column('日付'),
     start: column('開始'),
     name: column('名称'),
     priority: column('優先順位'),
@@ -1144,7 +1234,11 @@ function parseRows(rows) {
     const start = startMatch
       ? snapToSlot(clamp(Number(startMatch[1]) * 60 + Number(startMatch[2]), DAY_START, DAY_END - SLOT))
       : null;
-    const placed = dayIndex >= 0 && start !== null;
+
+    /* 日付があればそれを使い、無ければ曜日を表示中の週に当てはめる */
+    const dateCell = value('date');
+    const date = keyToDate(dateCell) ? dateCell : (dayIndex >= 0 ? dayKey(dayIndex) : null);
+    const placed = date !== null && start !== null;
     const kind = value('kind') === '予定' ? 'event' : 'task';
 
     if (kind === 'event' && !placed) {
@@ -1157,7 +1251,7 @@ function parseRows(rows) {
       name,
       duration: clamp(duration, 5, MAX_DURATION),
       priority: Number(value('priority')) || null,
-      day: placed ? dayIndex : null,
+      date: placed ? date : null,
       start: placed ? start : null,
     });
   });
@@ -1177,8 +1271,8 @@ function detectRange(rows, headerIndex, entries) {
       return 'week';
     }
   }
-  const days = new Set(entries.filter((entry) => entry.day !== null).map((entry) => entry.day));
-  return days.size > 1 ? 'week' : 'day';
+  const dates = new Set(entries.filter((entry) => entry.date !== null).map((entry) => entry.date));
+  return dates.size > 1 ? 'week' : 'day';
 }
 
 function newId(prefix) {
@@ -1195,9 +1289,10 @@ function applyWeekImport(entries) {
       importedEvents.push({
         id: newId('event-'),
         name: entry.name,
-        day: entry.day,
+        date: entry.date,
         start: entry.start,
         duration: entry.duration,
+        priority: entry.priority,
       });
     } else {
       importedTasks.push({
@@ -1206,7 +1301,7 @@ function applyWeekImport(entries) {
         priority: entry.priority || importedTasks.length + 1,
         duration: entry.duration,
         createdAt: Date.now() + index,
-        placedAt: entry.day === null ? null : { day: entry.day, start: entry.start },
+        placedAt: entry.date === null ? null : { date: entry.date, start: entry.start },
       });
     }
   });
@@ -1220,11 +1315,11 @@ function applyWeekImport(entries) {
 
 /* 日単位：選んだ曜日だけを入れ替える。
  * 同じ名前のタスクは既存のものを使い回し、無ければ新しく追加する。 */
-function applyDayImport(entries, day) {
+function applyDayImport(entries, date) {
   tasks.forEach((task) => {
-    if (task.placedAt && task.placedAt.day === day) task.placedAt = null;
+    if (task.placedAt && task.placedAt.date === date) task.placedAt = null;
   });
-  events = events.filter((event) => event.day !== day);
+  events = events.filter((event) => event.date !== date);
 
   const conflicts = [];
   let taskCount = 0;
@@ -1233,11 +1328,11 @@ function applyDayImport(entries, day) {
   entries.forEach((entry) => {
     if (entry.kind === 'event') {
       const id = newId('event-');
-      if (placementIssue(entry.name, 'event', id, day, entry.start, entry.duration)) {
+      if (placementIssue(entry.name, 'event', id, date, entry.start, entry.duration)) {
         conflicts.push(entry.name);
         return;
       }
-      events.push({ id, name: entry.name, day, start: entry.start, duration: entry.duration });
+      events.push({ id, name: entry.name, date, start: entry.start, duration: entry.duration, priority: null });
       eventCount += 1;
       return;
     }
@@ -1260,11 +1355,11 @@ function applyDayImport(entries, day) {
     taskCount += 1;
 
     if (entry.start !== null) {
-      if (placementIssue(task.name, 'task', task.id, day, entry.start, task.duration)) {
+      if (placementIssue(task.name, 'task', task.id, date, entry.start, task.duration)) {
         conflicts.push(task.name);
         return;
       }
-      task.placedAt = { day, start: entry.start };
+      task.placedAt = { date, start: entry.start };
     }
   });
 
@@ -1272,10 +1367,12 @@ function applyDayImport(entries, day) {
 }
 
 /* 取り込む曜日を選ぶダイアログ。戻り値は曜日の番号か null（キャンセル）。 */
-function askImportDay(message, defaultDay) {
+function askImportDay(message, defaultDate) {
   return new Promise((resolve) => {
     el.importMessage.textContent = message;
-    el.importDay.value = String(defaultDay);
+    el.importDay.value = Array.from(el.importDay.options).some((option) => option.value === defaultDate)
+      ? defaultDate
+      : dayKey(defaultDayIndex());
 
     let settled = false;
     const finish = (result) => {
@@ -1287,7 +1384,7 @@ function askImportDay(message, defaultDay) {
       if (el.importDialog.open) el.importDialog.close();
       resolve(result);
     };
-    const onConfirm = () => finish(Number(el.importDay.value));
+    const onConfirm = () => finish(el.importDay.value);
     const onCancel = () => finish(null);
 
     el.importConfirm.addEventListener('click', onConfirm);
@@ -1328,18 +1425,18 @@ async function importWorkbook(file) {
       result = applyWeekImport(entries);
       summary = `${file.name} でタスクと週間表を置き換えました`;
     } else {
-      const fileDay = entries.find((entry) => entry.day !== null);
-      const day = await askImportDay(
+      const fileEntry = entries.find((entry) => entry.date !== null);
+      const date = await askImportDay(
         `${file.name}（タスク ${taskRows}件・予定 ${eventRows}件）を取り込みます。` +
-        '選んだ曜日の内容は、ファイルの内容に置き換わります。',
-        fileDay ? fileDay.day : todayIndex()
+        '選んだ日の内容は、ファイルの内容に置き換わります。',
+        fileEntry ? fileEntry.date : dayKey(defaultDayIndex())
       );
-      if (day === null) {
+      if (!date) {
         setStatus('取り込みを中止しました。');
         return;
       }
-      result = applyDayImport(entries, day);
-      summary = `${file.name} を ${dayLabel(day)} に取り込みました`;
+      result = applyDayImport(entries, date);
+      summary = `${file.name} を ${labelOfKey(date, true)} に取り込みました`;
     }
 
     save();
@@ -1525,7 +1622,7 @@ el.clearPlanning.addEventListener('click', () => {
     events.push({
       id: newId('event-'),
       name: task.name,
-      day: task.placedAt.day,
+      date: task.placedAt.date,
       start: task.placedAt.start,
       duration: task.duration,
       priority: task.priority,
@@ -1553,26 +1650,23 @@ el.clear.addEventListener('click', () => {
 
 /* ---------- 予定（優先度なし）の入力 ---------- */
 
+/* 日の選択肢は表示中の週に合わせて作り直す（選択中の日はできるだけ残す） */
+function fillDayOptions(select) {
+  const previous = select.value;
+  select.textContent = '';
+  const keys = [];
+  for (let day = 0; day < WEEK_LENGTH; day += 1) {
+    const option = document.createElement('option');
+    option.value = dayKey(day);
+    option.textContent = dayLabel(day);
+    select.append(option);
+    keys.push(option.value);
+  }
+  select.value = keys.includes(previous) ? previous : dayKey(defaultDayIndex());
+}
+
 function fillSelectOptions() {
-  el.eventDay.textContent = '';
-  el.exportDay.textContent = '';
-  for (let day = 0; day < WEEK_LENGTH; day += 1) {
-    const option = document.createElement('option');
-    option.value = String(day);
-    option.textContent = dayLabel(day);
-    el.eventDay.append(option);
-    el.exportDay.append(option.cloneNode(true));
-  }
-  el.importDay.textContent = '';
-  for (let day = 0; day < WEEK_LENGTH; day += 1) {
-    const option = document.createElement('option');
-    option.value = String(day);
-    option.textContent = dayLabel(day);
-    el.importDay.append(option);
-  }
-  el.eventDay.value = String(todayIndex());
-  el.exportDay.value = String(todayIndex());
-  el.importDay.value = String(todayIndex());
+  [el.eventDay, el.exportDay, el.importDay].forEach(fillDayOptions);
 
   el.eventStart.textContent = '';
   for (let start = DAY_START; start < DAY_END; start += SLOT) {
@@ -1598,7 +1692,7 @@ function startEventEdit(id) {
   editingEventId = id;
   el.eventId.value = id;
   el.eventName.value = event.name;
-  el.eventDay.value = String(event.day);
+  el.eventDay.value = event.date;
   el.eventStart.value = String(event.start);
   el.eventDuration.value = String(event.duration);
   el.eventSubmit.textContent = '予定を更新';
@@ -1610,7 +1704,7 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
   submitEvent.preventDefault();
 
   const name = el.eventName.value.trim();
-  const day = Number(el.eventDay.value);
+  const date = el.eventDay.value;
   const start = Number(el.eventStart.value);
   const duration = Number(el.eventDuration.value);
 
@@ -1626,7 +1720,7 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
   }
 
   const id = editingEventId || `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const issue = placementIssue(name, 'event', id, day, start, duration);
+  const issue = placementIssue(name, 'event', id, date, start, duration);
   if (issue) {
     setBoardStatus(issue);
     return;
@@ -1636,16 +1730,16 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
   let target;
   if (editingEventId) {
     target = events.find((e) => e.id === editingEventId);
-    Object.assign(target, { name, day, start, duration });   /* 優先順位は保持する */
+    Object.assign(target, { name, date, start, duration });   /* 優先順位は保持する */
   } else {
-    target = { id, name, day, start, duration, priority: null };
+    target = { id, name, date, start, duration, priority: null };
     events.push(target);
   }
 
   saveEvents();
   resetEventForm();
   render();
-  setBoardStatus(`${eventLabel(target)}を ${dayLabel(day)} ${formatTime(start)} に${action}しました。`);
+  setBoardStatus(`${eventLabel(target)}を ${labelOfKey(date)} ${formatTime(start)} に${action}しました。`);
 });
 
 el.eventCancel.addEventListener('click', () => {
@@ -1655,12 +1749,16 @@ el.eventCancel.addEventListener('click', () => {
 
 el.clearPlacements.addEventListener('click', () => {
   if (!tasks.some((task) => task.placedAt !== null)) return;
-  if (!window.confirm('週間スケジュールに配置したタスクをすべて解除しますか？')) return;
+  if (!window.confirm('週間スケジュールに配置したタスクを、すべての週について解除しますか？')) return;
   tasks.forEach((task) => { task.placedAt = null; });
   save();
   render();
   setBoardStatus('すべての配置を解除しました。');
 });
+
+el.prevWeek.addEventListener('click', () => showWeek(weekOffset - 1));
+el.nextWeek.addEventListener('click', () => showWeek(weekOffset + 1));
+el.thisWeek.addEventListener('click', () => showWeek(0));
 
 el.download.addEventListener('click', downloadWorkbook);
 el.importFile.addEventListener('change', () => {

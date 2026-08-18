@@ -423,3 +423,13 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 .conflict-foot { gap: 8px; }
 
 .head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 週の切り替え */
+.week-nav { display: flex; gap: 6px; }
+.week-nav .btn.is-current { border-color: var(--accent); color: var(--accent); }
+.week-label {
+  margin: 0 0 8px;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.week-label .other-week { margin-left: 10px; font-weight: 400; font-size: .8rem; color: var(--muted); }
