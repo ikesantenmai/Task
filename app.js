@@ -24,6 +24,10 @@ const el = {
   overflow: document.getElementById('overflow'),
   overflowList: document.getElementById('overflow-list'),
   summary: document.getElementById('summary'),
+  exportText: document.getElementById('export-text'),
+  exportStatus: document.getElementById('export-status'),
+  copy: document.getElementById('copy-btn'),
+  download: document.getElementById('download-btn'),
 };
 
 let tasks = load();
@@ -113,6 +117,7 @@ function render() {
   renderTable(plan);
   renderOverflow(plan);
   renderSummary(plan);
+  renderExport(plan);
 }
 
 function renderList(ordered) {
@@ -263,6 +268,111 @@ function renderSummary(plan) {
   el.summary.append(dl);
 }
 
+/* ---------- テキスト出力 ---------- */
+
+const RULE = '='.repeat(44);
+const THIN_RULE = '-'.repeat(44);
+
+function todayLabel() {
+  const now = new Date();
+  const week = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
+  return `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}（${week}）`;
+}
+
+/* スケジュールをそのまま貼り付けられるプレーンテキストに整形する。 */
+function buildText(plan) {
+  const lines = [];
+  lines.push(`${todayLabel()} のスケジュール（${formatTime(DAY_START)}〜${formatTime(DAY_END)}）`);
+  lines.push(RULE);
+  lines.push('');
+
+  if (plan.scheduled.length === 0) {
+    lines.push('タスクが登録されていません。');
+  } else {
+    plan.scheduled.forEach((entry) => {
+      lines.push(
+        `${formatTime(entry.start)}〜${formatTime(entry.end)}  ${entry.task.name}` +
+        `  [優先${entry.task.priority}・${formatDuration(entry.task.duration)}]`
+      );
+    });
+    if (plan.freeMinutes > 0) {
+      const last = plan.scheduled[plan.scheduled.length - 1].end;
+      lines.push(`${formatTime(last)}〜${formatTime(DAY_END)}  （空き時間）  [${formatDuration(plan.freeMinutes)}]`);
+    }
+  }
+
+  if (plan.unscheduled.length > 0) {
+    lines.push('');
+    lines.push('■ 割り当てできなかったタスク');
+    plan.unscheduled.forEach((task) => {
+      lines.push(`- ${task.name}  [優先${task.priority}・${formatDuration(task.duration)}]`);
+    });
+  }
+
+  const used = plan.scheduled.reduce((sum, entry) => sum + entry.task.duration, 0);
+  lines.push('');
+  lines.push(THIN_RULE);
+  lines.push(
+    `タスク ${tasks.length}件 / 割り当て ${plan.scheduled.length}件・${formatDuration(used)}` +
+    ` / 空き ${formatDuration(plan.freeMinutes)}` +
+    (plan.unscheduled.length ? ` / 未割り当て ${plan.unscheduled.length}件` : '')
+  );
+
+  return lines.join('\n');
+}
+
+function renderExport(plan) {
+  el.exportText.value = buildText(plan);
+  setStatus('');
+}
+
+let statusTimer = 0;
+
+function setStatus(message) {
+  el.exportStatus.textContent = message;
+  window.clearTimeout(statusTimer);
+  if (message) statusTimer = window.setTimeout(() => { el.exportStatus.textContent = ''; }, 3000);
+}
+
+async function copyText() {
+  const text = el.exportText.value;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      /* file:// などクリップボードAPIが使えない環境向けのフォールバック */
+      el.exportText.select();
+      if (!document.execCommand('copy')) throw new Error('execCommand failed');
+      el.exportText.setSelectionRange(0, 0);
+    }
+    setStatus('クリップボードにコピーしました。');
+  } catch (e) {
+    el.exportText.select();
+    setStatus('コピーできませんでした。テキストを選択したので手動でコピーしてください。');
+  }
+}
+
+function downloadText() {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-');
+
+  /* BOM 付きで保存し、Windows のテキストエディタでも文字化けしないようにする */
+  const blob = new Blob(['\uFEFF' + el.exportText.value], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `schedule-${stamp}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus(`schedule-${stamp}.txt をダウンロードしました。`);
+}
+
 /* ---------- 操作 ---------- */
 
 function showError(message) {
@@ -376,6 +486,9 @@ el.clear.addEventListener('click', () => {
   resetForm();
   render();
 });
+
+el.copy.addEventListener('click', copyText);
+el.download.addEventListener('click', downloadText);
 
 resetForm();
 render();

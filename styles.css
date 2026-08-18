@@ -189,3 +189,23 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .layout { grid-template-columns: 1fr; }
   .panel.wide { grid-column: auto; }
 }
+
+/* テキスト出力 */
+.export-actions { display: flex; gap: 8px; }
+.export-text {
+  width: 100%;
+  padding: 12px 14px;
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "Noto Sans Mono", monospace;
+  font-size: .85rem;
+  line-height: 1.8;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+.export-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#export-status:empty { display: none; }

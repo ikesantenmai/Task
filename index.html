@@ -72,6 +72,20 @@
       <ul id="overflow-list"></ul>
     </div>
   </section>
+
+  <!-- テキスト出力 -->
+  <section class="panel wide" aria-labelledby="export-heading">
+    <div class="panel-head">
+      <h2 id="export-heading">テキスト出力</h2>
+      <div class="export-actions">
+        <button type="button" class="btn ghost" id="copy-btn">コピー</button>
+        <button type="button" class="btn ghost" id="download-btn">.txt をダウンロード</button>
+      </div>
+    </div>
+    <textarea id="export-text" class="export-text" rows="14" readonly
+      aria-label="スケジュールのテキスト出力"></textarea>
+    <p class="empty" id="export-status" role="status" aria-live="polite"></p>
+  </section>
 </main>
 
 <script src="app.js"></script>
