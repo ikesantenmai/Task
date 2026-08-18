@@ -408,3 +408,16 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 .preview { font-size: .85rem; }
 .preview td { white-space: nowrap; }
 .preview tr.unplaced-row { color: var(--muted); font-style: italic; }
+
+/* 取り込みダイアログ */
+.conflict .field { margin-bottom: 4px; }
+.conflict select {
+  padding: 9px 11px;
+  font: inherit;
+  font-size: .95rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.conflict-foot { gap: 8px; }

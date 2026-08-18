@@ -137,7 +137,7 @@
         <input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
       </div>
     </div>
-    <p class="empty">出力した Excel はそのまま取り込めます。取り込むと、現在のタスクと予定はファイルの内容に置き換わります。</p>
+    <p class="empty">出力した Excel はそのまま取り込めます。日単位のファイルは曜日を選んでその日だけに取り込み、週単位のファイルは週間表全体を置き換えます。</p>
     <div class="table-scroll">
       <table class="schedule preview" id="export-preview">
         <thead>
@@ -159,6 +159,20 @@
   </section>
 
 </main>
+
+<!-- 日単位のExcelを取り込む曜日を選ぶダイアログ -->
+<dialog id="import-dialog" class="conflict" aria-labelledby="import-heading">
+  <h2 id="import-heading">日単位のExcelを取り込みます</h2>
+  <p id="import-message"></p>
+  <div class="field">
+    <label for="import-day">取り込む曜日</label>
+    <select id="import-day"></select>
+  </div>
+  <div class="conflict-foot">
+    <button type="button" class="btn ghost" id="import-cancel">キャンセル</button>
+    <button type="button" class="btn primary" id="import-confirm">この曜日に取り込む</button>
+  </div>
+</dialog>
 
 <!-- 優先順位の重複時に比較して選ぶダイアログ -->
 <dialog id="conflict-dialog" class="conflict" aria-labelledby="conflict-heading">

@@ -49,6 +49,11 @@ const el = {
   exportDay: document.getElementById('export-day'),
   download: document.getElementById('download-btn'),
   importFile: document.getElementById('import-file'),
+  importDialog: document.getElementById('import-dialog'),
+  importMessage: document.getElementById('import-message'),
+  importDay: document.getElementById('import-day'),
+  importConfirm: document.getElementById('import-confirm'),
+  importCancel: document.getElementById('import-cancel'),
   dialog: document.getElementById('conflict-dialog'),
   dialogMessage: document.getElementById('conflict-message'),
   chooseMoving: document.getElementById('choose-moving'),
@@ -1071,7 +1076,7 @@ function downloadWorkbook() {
     ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
     : `${dayLabelLong(selectedDay())} のスケジュール`;
 
-  const rows = [[title], [], EXPORT_HEADER].concat(exportRows());
+  const rows = [[title], ['範囲', isWeek ? '週単位' : '日単位'], EXPORT_HEADER].concat(exportRows());
   const blob = XLSX.build(sheetName, rows, EXPORT_WIDTHS);
   const fileName = isWeek
     ? `schedule-week-${dayStamp(0)}.xlsx`
@@ -1109,86 +1114,233 @@ function parseRows(rows) {
     throw new Error('「名称」または「所要時間（分）」の列が見つかりません。');
   }
 
-  const importedTasks = [];
-  const importedEvents = [];
+  const entries = [];
   let skipped = 0;
 
-  rows.slice(headerIndex + 1).forEach((cells, index) => {
+  rows.slice(headerIndex + 1).forEach((cells) => {
     const value = (key) => (columns[key] >= 0 ? (cells[columns[key]] || '').trim() : '');
     const name = value('name');
     if (!name) return;
 
-    const duration = clamp(Number(value('duration')) || 0, 5, MAX_DURATION);
+    const duration = Number(value('duration'));
     if (!Number.isFinite(duration) || duration < 5) {
       skipped += 1;
       return;
     }
 
-    const dayName = value('day');
-    const dayIndex = WEEK_NAMES.indexOf(dayName.replace(/曜日?$/, ''));
-    const startText = value('start');
-    const startMatch = /^(\d{1,2}):(\d{2})$/.exec(startText);
+    const dayIndex = WEEK_NAMES.indexOf(value('day').replace(/曜日?$/, ''));
+    const startMatch = /^(\d{1,2}):(\d{2})$/.exec(value('start'));
     const start = startMatch
       ? snapToSlot(clamp(Number(startMatch[1]) * 60 + Number(startMatch[2]), DAY_START, DAY_END - SLOT))
       : null;
     const placed = dayIndex >= 0 && start !== null;
+    const kind = value('kind') === '予定' ? 'event' : 'task';
 
-    if (value('kind') === '予定') {
-      if (!placed) {
-        skipped += 1;
-        return;
-      }
+    if (kind === 'event' && !placed) {
+      skipped += 1;
+      return;
+    }
+
+    entries.push({
+      kind,
+      name,
+      duration: clamp(duration, 5, MAX_DURATION),
+      priority: Number(value('priority')) || null,
+      day: placed ? dayIndex : null,
+      start: placed ? start : null,
+    });
+  });
+
+  return { entries, skipped, range: detectRange(rows, headerIndex, entries) };
+}
+
+/* 日単位か週単位かの判定。出力時に入れた「範囲」の行を優先し、
+ * 無い場合はタイトルや曜日の散らばりから推測する。 */
+function detectRange(rows, headerIndex, entries) {
+  for (const cells of rows.slice(0, headerIndex)) {
+    const index = cells.indexOf('範囲');
+    if (index >= 0 && cells[index + 1]) {
+      return cells[index + 1].includes('週') ? 'week' : 'day';
+    }
+    if (cells.some((cell) => typeof cell === 'string' && cell.includes('週間スケジュール'))) {
+      return 'week';
+    }
+  }
+  const days = new Set(entries.filter((entry) => entry.day !== null).map((entry) => entry.day));
+  return days.size > 1 ? 'week' : 'day';
+}
+
+function newId(prefix) {
+  return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/* 週単位：タスクと予定をまるごと置き換える */
+function applyWeekImport(entries) {
+  const importedTasks = [];
+  const importedEvents = [];
+
+  entries.forEach((entry, index) => {
+    if (entry.kind === 'event') {
       importedEvents.push({
-        id: `event-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
-        name,
-        day: dayIndex,
-        start,
-        duration,
+        id: newId('event-'),
+        name: entry.name,
+        day: entry.day,
+        start: entry.start,
+        duration: entry.duration,
       });
     } else {
       importedTasks.push({
-        id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
-        name,
-        priority: Number(value('priority')) || importedTasks.length + 1,
-        duration,
+        id: newId(''),
+        name: entry.name,
+        priority: entry.priority || importedTasks.length + 1,
+        duration: entry.duration,
         createdAt: Date.now() + index,
-        placedAt: placed ? { day: dayIndex, start } : null,
+        placedAt: entry.day === null ? null : { day: entry.day, start: entry.start },
       });
     }
   });
 
   importedTasks.sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
-  importedTasks.forEach((task, i) => { task.priority = i + 1; });
+  tasks = importedTasks;
+  events = importedEvents;
+  renumber();
+  return { taskCount: importedTasks.length, eventCount: importedEvents.length, conflicts: [] };
+}
 
-  return { importedTasks, importedEvents, skipped };
+/* 日単位：選んだ曜日だけを入れ替える。
+ * 同じ名前のタスクは既存のものを使い回し、無ければ新しく追加する。 */
+function applyDayImport(entries, day) {
+  tasks.forEach((task) => {
+    if (task.placedAt && task.placedAt.day === day) task.placedAt = null;
+  });
+  events = events.filter((event) => event.day !== day);
+
+  const conflicts = [];
+  let taskCount = 0;
+  let eventCount = 0;
+
+  entries.forEach((entry) => {
+    if (entry.kind === 'event') {
+      const id = newId('event-');
+      if (placementIssue(entry.name, 'event', id, day, entry.start, entry.duration)) {
+        conflicts.push(entry.name);
+        return;
+      }
+      events.push({ id, name: entry.name, day, start: entry.start, duration: entry.duration });
+      eventCount += 1;
+      return;
+    }
+
+    let task = tasks.find((t) => t.name === entry.name);
+    if (!task) {
+      task = {
+        id: newId(''),
+        name: entry.name,
+        priority: tasks.length + 1,
+        duration: entry.duration,
+        createdAt: Date.now(),
+        placedAt: null,
+      };
+      tasks.push(task);
+      renumber();
+    } else {
+      task.duration = entry.duration;
+    }
+    taskCount += 1;
+
+    if (entry.start !== null) {
+      if (placementIssue(task.name, 'task', task.id, day, entry.start, task.duration)) {
+        conflicts.push(task.name);
+        return;
+      }
+      task.placedAt = { day, start: entry.start };
+    }
+  });
+
+  return { taskCount, eventCount, conflicts };
+}
+
+/* 取り込む曜日を選ぶダイアログ。戻り値は曜日の番号か null（キャンセル）。 */
+function askImportDay(message, defaultDay) {
+  return new Promise((resolve) => {
+    el.importMessage.textContent = message;
+    el.importDay.value = String(defaultDay);
+
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      el.importConfirm.removeEventListener('click', onConfirm);
+      el.importCancel.removeEventListener('click', onCancel);
+      el.importDialog.removeEventListener('close', onCancel);
+      if (el.importDialog.open) el.importDialog.close();
+      resolve(result);
+    };
+    const onConfirm = () => finish(Number(el.importDay.value));
+    const onCancel = () => finish(null);
+
+    el.importConfirm.addEventListener('click', onConfirm);
+    el.importCancel.addEventListener('click', onCancel);
+    el.importDialog.addEventListener('close', onCancel);
+
+    if (typeof el.importDialog.showModal === 'function') {
+      el.importDialog.showModal();
+    } else {
+      el.importDialog.setAttribute('open', '');
+    }
+    el.importConfirm.focus();
+  });
 }
 
 async function importWorkbook(file) {
   try {
     const rows = await XLSX.parse(await file.arrayBuffer());
-    const { importedTasks, importedEvents, skipped } = parseRows(rows);
+    const { entries, skipped, range } = parseRows(rows);
 
-    if (importedTasks.length === 0 && importedEvents.length === 0) {
+    if (entries.length === 0) {
       setStatus('取り込める行がありませんでした。');
       return;
     }
-    const message = `現在のタスク（${tasks.length}件）と予定（${events.length}件）を、` +
-      `ファイルの内容（タスク ${importedTasks.length}件・予定 ${importedEvents.length}件）で置き換えます。よろしいですか？`;
-    if (!window.confirm(message)) {
-      setStatus('取り込みを中止しました。');
-      return;
+
+    const taskRows = entries.filter((entry) => entry.kind === 'task').length;
+    const eventRows = entries.length - taskRows;
+    let result;
+    let summary;
+
+    if (range === 'week') {
+      const message = `週単位のファイルです。現在のタスク（${tasks.length}件）と予定（${events.length}件）を、` +
+        `ファイルの内容（タスク ${taskRows}件・予定 ${eventRows}件）で置き換えます。よろしいですか？`;
+      if (!window.confirm(message)) {
+        setStatus('取り込みを中止しました。');
+        return;
+      }
+      result = applyWeekImport(entries);
+      summary = `${file.name} でタスクと週間表を置き換えました`;
+    } else {
+      const fileDay = entries.find((entry) => entry.day !== null);
+      const day = await askImportDay(
+        `${file.name}（タスク ${taskRows}件・予定 ${eventRows}件）を取り込みます。` +
+        '選んだ曜日の内容は、ファイルの内容に置き換わります。',
+        fileDay ? fileDay.day : todayIndex()
+      );
+      if (day === null) {
+        setStatus('取り込みを中止しました。');
+        return;
+      }
+      result = applyDayImport(entries, day);
+      summary = `${file.name} を ${dayLabel(day)} に取り込みました`;
     }
 
-    tasks = importedTasks;
-    events = importedEvents;
-    renumber();
     save();
     saveEvents();
     resetForm();
     resetEventForm();
     render();
     setStatus(
-      `${file.name} を取り込みました（タスク ${importedTasks.length}件・予定 ${importedEvents.length}件）。` +
+      `${summary}（タスク ${result.taskCount}件・予定 ${result.eventCount}件）。` +
+      (result.conflicts.length
+        ? `${result.conflicts.map((name) => `「${name}」`).join('、')}は時間が重なるため配置していません。`
+        : '') +
       (skipped ? `${skipped}件は内容が不正なため読み飛ばしました。` : '')
     );
   } catch (error) {
@@ -1368,8 +1520,16 @@ function fillSelectOptions() {
     el.eventDay.append(option);
     el.exportDay.append(option.cloneNode(true));
   }
+  el.importDay.textContent = '';
+  for (let day = 0; day < WEEK_LENGTH; day += 1) {
+    const option = document.createElement('option');
+    option.value = String(day);
+    option.textContent = dayLabel(day);
+    el.importDay.append(option);
+  }
   el.eventDay.value = String(todayIndex());
   el.exportDay.value = String(todayIndex());
+  el.importDay.value = String(todayIndex());
 
   el.eventStart.textContent = '';
   for (let start = DAY_START; start < DAY_END; start += SLOT) {
