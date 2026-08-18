@@ -142,6 +142,7 @@
         <div class="export-range" role="radiogroup" aria-label="出力範囲">
           <label><input type="radio" name="export-range" value="day" checked> 日単位</label>
           <label><input type="radio" name="export-range" value="week"> 週単位</label>
+          <label><input type="radio" name="export-range" value="all"> すべて</label>
         </div>
         <select id="export-day" aria-label="出力する日"></select>
         <button type="button" class="btn primary" id="download-btn">Excel（.xlsx）を出力</button>
@@ -149,7 +150,7 @@
         <input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
       </div>
     </div>
-    <p class="empty">出力した Excel はそのまま取り込めます。日単位のファイルは曜日を選んでその日だけに取り込み、週単位のファイルは週間表全体を置き換えます。</p>
+    <p class="empty">出力した Excel はそのまま取り込めます。日単位のファイルは日を選んでその日だけ、週単位のファイルはその週だけを上書きし、「すべて」のファイルは全期間のタスクと予定を置き換えます。</p>
     <div class="table-scroll">
       <table class="schedule preview" id="export-preview">
         <thead>

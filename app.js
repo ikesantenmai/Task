@@ -1120,8 +1120,10 @@ function selectedDate() {
 
 /* 出力する行。週単位は1週間分＋未配置タスク、日単位はその日の分＋未配置タスク。 */
 function exportRows() {
-  const isWeek = exportRange() === 'week';
-  const items = isWeek ? boardItems() : boardItems(selectedDate());
+  const range = exportRange();
+  const items = range === 'all'
+    ? allBoardItems().slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start))
+    : range === 'week' ? boardItems() : boardItems(selectedDate());
 
   const rows = items.map((item) => [
     item.kind === 'event' && !item.priority ? '予定' : 'タスク',
@@ -1144,8 +1146,7 @@ function exportRows() {
 }
 
 function renderExport() {
-  const isWeek = exportRange() === 'week';
-  el.exportDay.disabled = isWeek;
+  el.exportDay.disabled = exportRange() !== 'day';
 
   const rows = exportRows();
   el.exportBody.textContent = '';
@@ -1170,17 +1171,22 @@ function renderExport() {
 }
 
 function downloadWorkbook() {
-  const isWeek = exportRange() === 'week';
-  const sheetName = isWeek ? '週間スケジュール' : selectedDate();
-  const title = isWeek
-    ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
-    : `${labelOfKey(selectedDate(), true)} のスケジュール`;
+  const range = exportRange();
+  const rangeName = range === 'all' ? 'すべて' : range === 'week' ? '週単位' : '日単位';
+  const sheetName = range === 'all' ? 'すべて' : range === 'week' ? '週間スケジュール' : selectedDate();
+  const title = range === 'all'
+    ? 'すべてのタスク・予定'
+    : range === 'week'
+      ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
+      : `${labelOfKey(selectedDate(), true)} のスケジュール`;
 
-  const rows = [[title], ['範囲', isWeek ? '週単位' : '日単位'], EXPORT_HEADER].concat(exportRows());
+  const rows = [[title], ['範囲', rangeName], EXPORT_HEADER].concat(exportRows());
   const blob = XLSX.build(sheetName, rows, EXPORT_WIDTHS);
-  const fileName = isWeek
-    ? `schedule-week-${dayKey(0)}.xlsx`
-    : `schedule-${selectedDate()}.xlsx`;
+  const fileName = range === 'all'
+    ? `schedule-all-${isoDate(new Date())}.xlsx`
+    : range === 'week'
+      ? `schedule-week-${dayKey(0)}.xlsx`
+      : `schedule-${selectedDate()}.xlsx`;
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -1265,22 +1271,27 @@ function detectRange(rows, headerIndex, entries) {
   for (const cells of rows.slice(0, headerIndex)) {
     const index = cells.indexOf('範囲');
     if (index >= 0 && cells[index + 1]) {
-      return cells[index + 1].includes('週') ? 'week' : 'day';
+      const value = cells[index + 1];
+      if (value.includes('すべて')) return 'all';
+      return value.includes('週') ? 'week' : 'day';
     }
-    if (cells.some((cell) => typeof cell === 'string' && cell.includes('週間スケジュール'))) {
-      return 'week';
-    }
+    if (cells.some((cell) => typeof cell === 'string' && cell.includes('すべてのタスク'))) return 'all';
+    if (cells.some((cell) => typeof cell === 'string' && cell.includes('週間スケジュール'))) return 'week';
   }
-  const dates = new Set(entries.filter((entry) => entry.date !== null).map((entry) => entry.date));
-  return dates.size > 1 ? 'week' : 'day';
+
+  /* 「範囲」の行が無いファイルは、日付の散らばりから推測する */
+  const dates = Array.from(new Set(entries.filter((entry) => entry.date !== null).map((entry) => entry.date)));
+  if (dates.length <= 1) return 'day';
+  const weeks = new Set(dates.map((date) => isoDate(mondayOf(keyToDate(date)))));
+  return weeks.size > 1 ? 'all' : 'week';
 }
 
 function newId(prefix) {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/* 週単位：タスクと予定をまるごと置き換える */
-function applyWeekImport(entries) {
+/* すべて：タスクと予定をまるごと置き換える */
+function applyAllImport(entries) {
   const importedTasks = [];
   const importedEvents = [];
 
@@ -1313,20 +1324,25 @@ function applyWeekImport(entries) {
   return { taskCount: importedTasks.length, eventCount: importedEvents.length, conflicts: [] };
 }
 
-/* 日単位：選んだ曜日だけを入れ替える。
- * 同じ名前のタスクは既存のものを使い回し、無ければ新しく追加する。 */
-function applyDayImport(entries, date) {
+/* 日単位・週単位：対象の日付だけを入れ替える（他の日はそのまま）。
+ * 同じ名前のタスクは既存のものを使い回し、無ければ新しく追加する。
+ * resolveDate は、行をどの日付に置くかを返す（未配置の行は null）。 */
+function applyPartialImport(entries, clearDates, resolveDate) {
+  const cleared = new Set(clearDates);
   tasks.forEach((task) => {
-    if (task.placedAt && task.placedAt.date === date) task.placedAt = null;
+    if (task.placedAt && cleared.has(task.placedAt.date)) task.placedAt = null;
   });
-  events = events.filter((event) => event.date !== date);
+  events = events.filter((event) => !cleared.has(event.date));
 
   const conflicts = [];
   let taskCount = 0;
   let eventCount = 0;
 
   entries.forEach((entry) => {
+    const date = resolveDate(entry);
+
     if (entry.kind === 'event') {
+      if (date === null) return;
       const id = newId('event-');
       if (placementIssue(entry.name, 'event', id, date, entry.start, entry.duration)) {
         conflicts.push(entry.name);
@@ -1354,7 +1370,7 @@ function applyDayImport(entries, date) {
     }
     taskCount += 1;
 
-    if (entry.start !== null) {
+    if (date !== null && entry.start !== null) {
       if (placementIssue(task.name, 'task', task.id, date, entry.start, task.duration)) {
         conflicts.push(task.name);
         return;
@@ -1415,15 +1431,42 @@ async function importWorkbook(file) {
     let result;
     let summary;
 
-    if (range === 'week') {
-      const message = `週単位のファイルです。現在のタスク（${tasks.length}件）と予定（${events.length}件）を、` +
+    if (range === 'all') {
+      const message = 'すべての範囲のファイルです。現在のタスク' +
+        `（${tasks.length}件）と予定（${events.length}件）を、` +
         `ファイルの内容（タスク ${taskRows}件・予定 ${eventRows}件）で置き換えます。よろしいですか？`;
       if (!window.confirm(message)) {
         setStatus('取り込みを中止しました。');
         return;
       }
-      result = applyWeekImport(entries);
-      summary = `${file.name} でタスクと週間表を置き換えました`;
+      result = applyAllImport(entries);
+      summary = `${file.name} ですべてのタスクと予定を置き換えました`;
+    } else if (range === 'week') {
+      /* ファイルの日付が属する週（日付が無ければ表示中の週）だけを上書きする */
+      const dated = entries.find((entry) => entry.date !== null);
+      const monday = dated ? mondayOf(keyToDate(dated.date)) : viewedMonday();
+      const weekDates = Array.from({ length: WEEK_LENGTH }, (unused, i) => {
+        const date = new Date(monday);
+        date.setDate(date.getDate() + i);
+        return isoDate(date);
+      });
+
+      const message = `週単位のファイルです。${labelOfKey(weekDates[0], true)} 〜 ` +
+        `${labelOfKey(weekDates[WEEK_LENGTH - 1], true)} の内容を、` +
+        `ファイルの内容（タスク ${taskRows}件・予定 ${eventRows}件）で上書きします。` +
+        '他の週はそのまま残ります。よろしいですか？';
+      if (!window.confirm(message)) {
+        setStatus('取り込みを中止しました。');
+        return;
+      }
+
+      result = applyPartialImport(entries, weekDates, (entry) => {
+        if (entry.date === null) return null;
+        if (weekDates.includes(entry.date)) return entry.date;
+        /* 別の週の日付は、同じ曜日の位置に読み替える */
+        return weekDates[(keyToDate(entry.date).getDay() + 6) % 7];
+      });
+      summary = `${file.name} で ${labelOfKey(weekDates[0])} 〜 ${labelOfKey(weekDates[WEEK_LENGTH - 1])} を上書きしました`;
     } else {
       const fileEntry = entries.find((entry) => entry.date !== null);
       const date = await askImportDay(
@@ -1435,7 +1478,7 @@ async function importWorkbook(file) {
         setStatus('取り込みを中止しました。');
         return;
       }
-      result = applyDayImport(entries, date);
+      result = applyPartialImport(entries, [date], (entry) => (entry.date === null ? null : date));
       summary = `${file.name} を ${labelOfKey(date, true)} に取り込みました`;
     }
 
