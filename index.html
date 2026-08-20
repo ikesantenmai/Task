@@ -9,7 +9,7 @@
 <body>
 <header class="site-header">
   <h1>1日のタスクスケジューラー</h1>
-  <p class="lead">タスク・優先順位・所要時間を入力すると、優先度の高いタスクから <strong>9:00〜18:00</strong> に自動で割り当てます。</p>
+  <p class="lead">タスク・優先順位・所要時間を入力すると、優先度の高いタスクから <strong id="range-label"></strong> に自動で割り当てます。</p>
 </header>
 
 <main class="layout">
@@ -31,7 +31,7 @@
         </div>
         <div class="field">
           <label for="task-duration">所要時間<span class="hint">（分）</span></label>
-          <input type="number" id="task-duration" min="5" max="540" step="5" value="60" required>
+          <input type="number" id="task-duration" min="5" step="5" value="60" required>
         </div>
       </div>
 
@@ -63,7 +63,7 @@
   <!-- スケジュール -->
   <section class="panel wide" aria-labelledby="schedule-heading">
     <div class="panel-head">
-      <h2 id="schedule-heading">自動スケジュール（優先順位順・9:00〜18:00）</h2>
+      <h2 id="schedule-heading">自動スケジュール（優先順位順・<span id="schedule-range"></span>）</h2>
       <p class="empty">優先順位と所要時間は、この表で直接変更できます。</p>
     </div>
     <div class="timeline" id="timeline" aria-hidden="true"></div>
@@ -116,7 +116,7 @@
       </div>
       <div class="field">
         <label for="event-duration">所要時間（分）</label>
-        <input type="number" id="event-duration" min="5" max="540" step="5" value="60" required>
+        <input type="number" id="event-duration" min="5" step="5" value="60" required>
       </div>
       <div class="event-actions">
         <button type="submit" class="btn primary btn-small" id="event-submit">予定を追加</button>

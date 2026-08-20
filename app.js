@@ -1,11 +1,11 @@
 /* 1日のタスクスケジューラー
- * ・自動スケジュール：優先順位（1が最優先）の高いタスクから 9:00〜18:00 に日単位で割り当てる。
+ * ・自動スケジュール：優先順位（1が最優先）の高いタスクから 9:00〜21:00 に日単位で割り当てる。
  * ・週間スケジュール：タスクと予定を1週間の任意の日時へドラッグ＆ドロップで固定する。
  * tasks 配列の並び順がそのまま優先順位で、変更のたびに 1..n を振り直す。 */
 'use strict';
 
 const DAY_START = 9 * 60;   // 9:00 を分に換算
-const DAY_END = 18 * 60;    // 18:00
+const DAY_END = 21 * 60;    // 21:00
 const MAX_DURATION = DAY_END - DAY_START;
 const SLOT = 30;            // 週間スケジュールの1コマ（分）
 const WEEK_LENGTH = 7;
@@ -37,6 +37,8 @@ const el = {
   board: document.getElementById('board-body'),
   boardStatus: document.getElementById('board-status'),
   clearPlacements: document.getElementById('clear-placements'),
+  rangeLabel: document.getElementById('range-label'),
+  scheduleRange: document.getElementById('schedule-range'),
   weekLabel: document.getElementById('week-label'),
   prevWeek: document.getElementById('prev-week'),
   thisWeek: document.getElementById('this-week'),
@@ -161,6 +163,12 @@ function formatTime(minutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/* 見出し用の時間帯（例：9:00〜21:00） */
+function rangeLabel() {
+  const hour = (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
+  return `${hour(DAY_START)}〜${hour(DAY_END)}`;
+}
+
 function formatDuration(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -270,7 +278,7 @@ let editingEventId = null;
 
 /* ---------- 自動スケジュール（日単位） ---------- */
 
-/* 優先順位の順に 9:00 から詰めていく。
+/* 優先順位の順に一日の開始時刻から詰めていく。
  * 残り時間に収まらないタスクは飛ばし、後続の短いタスクで埋める。 */
 function buildSchedule() {
   const scheduled = [];
@@ -621,7 +629,7 @@ function renderTimeline(plan) {
     free.className = 'slot free';
     free.style.flexGrow = String(plan.freeMinutes);
     free.style.flexBasis = '0';
-    free.textContent = plan.scheduled.length ? '空き' : '9:00〜18:00 は空いています';
+    free.textContent = plan.scheduled.length ? '空き' : `${rangeLabel()} は空いています`;
     el.timeline.append(free);
   }
 
@@ -668,7 +676,7 @@ function renderTable(plan) {
     head.className = 'section-row';
     const cell = document.createElement('td');
     cell.colSpan = 6;
-    cell.textContent = '割り当てできなかったタスク（9:00〜18:00 に収まりません。優先順位か所要時間を見直してください）';
+    cell.textContent = `割り当てできなかったタスク（${rangeLabel()} に収まりません。優先順位か所要時間を見直してください）`;
     head.append(cell);
     el.scheduleBody.append(head);
 
@@ -1813,6 +1821,12 @@ el.exportDay.addEventListener('change', renderExport);
 document.querySelectorAll('input[name="export-range"]').forEach((radio) => {
   radio.addEventListener('change', renderExport);
 });
+
+/* 時間帯の表記と所要時間の上限は、DAY_START / DAY_END から作る */
+el.rangeLabel.textContent = rangeLabel();
+el.scheduleRange.textContent = rangeLabel();
+el.duration.max = String(MAX_DURATION);
+el.eventDuration.max = String(MAX_DURATION);
 
 fillSelectOptions();
 resetEventForm();
