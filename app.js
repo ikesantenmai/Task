@@ -1,10 +1,10 @@
 /* 1日のタスクスケジューラー
- * ・自動スケジュール：優先順位（1が最優先）の高いタスクから 8:00〜22:00 に日単位で割り当てる。
+ * ・自動スケジュール：優先順位（1が最優先）の高いタスクから 7:00〜22:00 に日単位で割り当てる。
  * ・週間スケジュール：タスクと予定を1週間の任意の日時へドラッグ＆ドロップで固定する。
  * tasks 配列の並び順がそのまま優先順位で、変更のたびに 1..n を振り直す。 */
 'use strict';
 
-const DAY_START = 8 * 60;   // 8:00 を分に換算
+const DAY_START = 7 * 60;   // 7:00 を分に換算
 const DAY_END = 22 * 60;    // 22:00
 const MAX_DURATION = DAY_END - DAY_START;
 const SLOT = 30;            // 週間スケジュールの1コマ（分）
@@ -163,7 +163,7 @@ function formatTime(minutes) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-/* 見出し用の時間帯（例：8:00〜22:00） */
+/* 見出し用の時間帯（例：7:00〜22:00） */
 function rangeLabel() {
   const hour = (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
   return `${hour(DAY_START)}〜${hour(DAY_END)}`;
