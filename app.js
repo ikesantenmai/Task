@@ -9,9 +9,9 @@ const DAY_END = 22 * 60;    // 22:00
 const MAX_DURATION = DAY_END - DAY_START;
 const SLOT = 30;            // 週間スケジュールの1コマ（分）
 const WEEK_LENGTH = 7;
-const WEEK_NAMES = ['月', '火', '水', '木', '金', '土', '日'];
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
 
+const LANG_KEY = 'daily-task-scheduler/lang';
 const STORAGE_KEY = 'daily-task-scheduler/v3';
 const EVENTS_KEY = 'daily-task-scheduler/events/v3';
 const LEGACY_STORAGE_KEYS = ['daily-task-scheduler/v2', 'daily-task-scheduler/v1'];
@@ -37,8 +37,9 @@ const el = {
   board: document.getElementById('board-body'),
   boardStatus: document.getElementById('board-status'),
   clearPlacements: document.getElementById('clear-placements'),
-  rangeLabel: document.getElementById('range-label'),
-  scheduleRange: document.getElementById('schedule-range'),
+  lead: document.getElementById('lead'),
+  scheduleHeading: document.getElementById('schedule-heading'),
+  langSelect: document.getElementById('lang-select'),
   weekLabel: document.getElementById('week-label'),
   prevWeek: document.getElementById('prev-week'),
   thisWeek: document.getElementById('this-week'),
@@ -67,6 +68,70 @@ const el = {
   chooseExisting: document.getElementById('choose-existing'),
   dialogCancel: document.getElementById('conflict-cancel'),
 };
+
+/* ---------- 表示言語 ---------- */
+
+let lang = I18N[localStorage.getItem(LANG_KEY)] ? localStorage.getItem(LANG_KEY) : 'ja';
+
+/* 辞書から文言を取り出し、{name} をパラメータで置き換える */
+function t(key, params) {
+  const text = (I18N[lang] && I18N[lang][key]) || I18N.ja[key] || key;
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (match, name) =>
+    (params[name] === undefined ? match : String(params[name])));
+}
+
+function weekNames() {
+  return WEEK_NAMES_BY_LANG[lang] || WEEK_NAMES_BY_LANG.ja;
+}
+
+/* 曜日名（日本語・英語のどちらの表記でも受け取る） */
+function weekdayIndexOf(text) {
+  const cleaned = String(text || '').replace(/曜日?$/, '').trim();
+  if (!cleaned) return -1;
+  for (const names of Object.values(WEEK_NAMES_BY_LANG)) {
+    const index = names.findIndex((name) => name.toLowerCase() === cleaned.toLowerCase());
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+/* 画面上の固定文言を、いまの言語で書き換える */
+function applyStaticText() {
+  document.documentElement.lang = lang;
+  document.title = t('app.title');
+  document.querySelectorAll('[data-i18n]').forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => {
+    node.placeholder = t(node.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((node) => {
+    node.title = t(node.dataset.i18nTitle);
+  });
+  document.querySelectorAll('[data-i18n-aria]').forEach((node) => {
+    node.setAttribute('aria-label', t(node.dataset.i18nAria));
+  });
+
+  el.lead.textContent = t('app.lead', { range: rangeLabel() });
+  el.scheduleHeading.textContent = t('schedule.heading', { range: rangeLabel() });
+  el.langSelect.value = lang;
+}
+
+function setLanguage(next) {
+  if (!I18N[next] || next === lang) return;
+  lang = next;
+  try {
+    localStorage.setItem(LANG_KEY, lang);
+  } catch (e) {
+    /* 保存できなくても表示は切り替える */
+  }
+  applyStaticText();
+  fillSelectOptions();
+  resetForm();
+  resetEventForm();
+  render();
+}
 
 /* ---------- 週（月曜始まり）の日付 ---------- */
 /* 配置は日付（YYYY-MM-DD）で保持し、週間表は表示中の週だけを描画する。 */
@@ -123,10 +188,13 @@ function todayKey() {
 function labelOfKey(key, withYear) {
   const date = keyToDate(key);
   if (!date) return key || '';
-  const name = WEEK_NAMES[(date.getDay() + 6) % 7];
-  return withYear
-    ? `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${name}）`
-    : `${date.getMonth() + 1}/${date.getDate()}（${name}）`;
+  const params = {
+    y: date.getFullYear(),
+    m: date.getMonth() + 1,
+    d: date.getDate(),
+    w: weekNames()[(date.getDay() + 6) % 7],
+  };
+  return t(withYear ? 'date.long' : 'date.short', params);
 }
 
 function dayLabel(index) {
@@ -166,15 +234,15 @@ function formatTime(minutes) {
 /* 見出し用の時間帯（例：7:00〜22:00） */
 function rangeLabel() {
   const hour = (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
-  return `${hour(DAY_START)}〜${hour(DAY_END)}`;
+  return t('time.range', { from: hour(DAY_START), to: hour(DAY_END) });
 }
 
 function formatDuration(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (h && m) return `${h}時間${m}分`;
-  if (h) return `${h}時間`;
-  return `${m}分`;
+  if (h && m) return t('duration.hm', { h, m });
+  if (h) return t('duration.h', { h });
+  return t('duration.m', { m });
 }
 
 /* 週間スケジュールは30分刻みなので、開始時刻をコマの先頭に合わせる */
@@ -354,10 +422,10 @@ function isFree(kind, id, date, start, duration) {
 /* 配置できない理由を返す（配置できる場合は null） */
 function placementIssue(name, kind, id, date, start, duration) {
   if (start < DAY_START || occupiedEnd(start, duration) > DAY_END) {
-    return `「${name}」は ${formatTime(DAY_END)} を超えるため、この時間には配置できません。`;
+    return t('board.overEnd', { name, end: formatTime(DAY_END) });
   }
   if (!isFree(kind, id, date, start, duration)) {
-    return `「${name}」は ${labelOfKey(date)} の他のタスク・予定と重なるため、この時間には配置できません。`;
+    return t('board.overlap', { name, date: labelOfKey(date) });
   }
   return null;
 }
@@ -377,12 +445,12 @@ function placeItem(kind, id, date, start) {
   task.placedAt = { date, start };
   save();
   render();
-  setBoardStatus(`「${task.name}」を ${labelOfKey(date)} ${formatTime(start)} に配置しました。`);
+  setBoardStatus(t('board.placed', { name: task.name, date: labelOfKey(date), time: formatTime(start) }));
 }
 
 /* 一覧から外したタスク（優先順位あり）は「予定」と呼ばないようにする */
 function eventLabel(event) {
-  return event.priority ? `「${event.name}」` : `予定「${event.name}」`;
+  return t(event.priority ? 'event.labelPriority' : 'event.label', { name: event.name });
 }
 
 function moveEvent(id, date, start) {
@@ -399,7 +467,7 @@ function moveEvent(id, date, start) {
   event.start = start;
   saveEvents();
   render();
-  setBoardStatus(`${eventLabel(event)}を ${labelOfKey(date)} ${formatTime(start)} に移動しました。`);
+  setBoardStatus(t('board.moved', { label: eventLabel(event), date: labelOfKey(date), time: formatTime(start) }));
 }
 
 function unplaceTask(id) {
@@ -408,19 +476,19 @@ function unplaceTask(id) {
   task.placedAt = null;
   save();
   render();
-  setBoardStatus(`「${task.name}」の配置を解除しました。`);
+  setBoardStatus(t('board.unplaced', { name: task.name }));
 }
 
 function removeEvent(id) {
   const event = events.find((e) => e.id === id);
   if (!event) return;
-  if (!window.confirm(`${eventLabel(event)}を削除しますか？`)) return;
+  if (!window.confirm(t('event.confirmDelete', { label: eventLabel(event) }))) return;
   const label = eventLabel(event);
   events = events.filter((e) => e.id !== id);
   if (editingEventId === id) resetEventForm();
   saveEvents();
   render();
-  setBoardStatus(`${label}を削除しました。`);
+  setBoardStatus(t('event.deleted', { label }));
 }
 
 /* 所要時間の変更などで配置が成立しなくなったタスクは解除する（予定は動かさない） */
@@ -463,10 +531,9 @@ function askPriorityConflict(moving, rival, rank) {
   conflictOpen = true;
 
   return new Promise((resolve) => {
-    el.dialogMessage.textContent =
-      `優先順位 ${rank} には既に「${rival.name}」があります。どちらを先に実行しますか？`;
-    fillChoice(el.chooseMoving, moving, `優先順位 ${rank}（先に実行）`);
-    fillChoice(el.chooseExisting, rival, `優先順位 ${rank}（先に実行）`);
+    el.dialogMessage.textContent = t('conflict.message', { rank, name: rival.name });
+    fillChoice(el.chooseMoving, moving, rank);
+    fillChoice(el.chooseExisting, rival, rank);
 
     let settled = false;
     const finish = (result) => {
@@ -499,12 +566,12 @@ function askPriorityConflict(moving, rival, rank) {
   });
 }
 
-function fillChoice(button, task, badgeText) {
+function fillChoice(button, task, rank) {
   button.textContent = '';
   const name = document.createElement('strong');
-  name.textContent = `「${task.name}」を先にする`;
+  name.textContent = t('conflict.choice', { name: task.name });
   const meta = document.createElement('span');
-  meta.textContent = `所要 ${formatDuration(task.duration)}　→　${badgeText}`;
+  meta.textContent = t('conflict.choiceMeta', { duration: formatDuration(task.duration), rank });
   button.append(name, meta);
 }
 
@@ -559,7 +626,7 @@ function render() {
   renderExport();
   if (dropped.length) {
     save();
-    setBoardStatus(`${dropped.map((name) => `「${name}」`).join('、')}は時間が収まらなくなったため配置を解除しました。`);
+    setBoardStatus(t('board.dropped', { names: joinNames(dropped) }));
   }
 }
 
@@ -576,7 +643,7 @@ function renderList() {
     const rank = document.createElement('span');
     rank.className = 'rank';
     rank.textContent = task.priority;
-    rank.title = `優先順位 ${task.priority}`;
+    rank.title = t('list.rankTitle', { priority: task.priority });
 
     const body = document.createElement('div');
     body.className = 'task-body';
@@ -585,14 +652,14 @@ function renderList() {
     name.textContent = task.name;
     const meta = document.createElement('span');
     meta.className = 'task-meta';
-    meta.textContent = `優先順位 ${task.priority}・所要 ${formatDuration(task.duration)}`;
+    meta.textContent = t('list.itemMeta', { priority: task.priority, duration: formatDuration(task.duration) });
     body.append(name, meta);
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
     actions.append(
-      makeButton('編集', () => startEdit(task.id), `${task.name} を編集`),
-      makeButton('削除', () => removeTask(task.id), `${task.name} を削除`, true)
+      makeButton(t('common.edit'), () => startEdit(task.id), t('list.editAria', { name: task.name })),
+      makeButton(t('common.delete'), () => removeTask(task.id), t('list.deleteAria', { name: task.name }), true)
     );
 
     item.append(rank, body, actions);
@@ -620,7 +687,7 @@ function renderTimeline(plan) {
     slot.style.flexBasis = '0';
     slot.style.background = `hsl(${HUES[index % HUES.length]} 62% 48%)`;
     slot.textContent = entry.task.name;
-    slot.title = `${formatTime(entry.start)}〜${formatTime(entry.end)}　${entry.task.name}`;
+    slot.title = `${t('time.range', { from: formatTime(entry.start), to: formatTime(entry.end) })}　${entry.task.name}`;
     el.timeline.append(slot);
   });
 
@@ -629,7 +696,7 @@ function renderTimeline(plan) {
     free.className = 'slot free';
     free.style.flexGrow = String(plan.freeMinutes);
     free.style.flexBasis = '0';
-    free.textContent = plan.scheduled.length ? '空き' : `${rangeLabel()} は空いています`;
+    free.textContent = plan.scheduled.length ? t('schedule.freeShort') : t('schedule.dayEmpty', { range: rangeLabel() });
     el.timeline.append(free);
   }
 
@@ -644,7 +711,7 @@ function renderTable(plan) {
     const cell = document.createElement('td');
     cell.colSpan = 6;
     cell.className = 'center';
-    cell.textContent = 'タスクを追加するとスケジュールが表示されます。';
+    cell.textContent = t('schedule.empty');
     row.append(cell);
     el.scheduleBody.append(row);
     return;
@@ -652,7 +719,10 @@ function renderTable(plan) {
 
   plan.scheduled.forEach((entry) => {
     el.scheduleBody.append(
-      makeTaskRow(entry.task, `${formatTime(entry.start)} 〜 ${formatTime(entry.end)}`)
+      makeTaskRow(entry.task, t('time.rangeSpaced', {
+        from: formatTime(entry.start),
+        to: formatTime(entry.end),
+      }))
     );
   });
 
@@ -662,9 +732,9 @@ function renderTable(plan) {
     row.className = 'gap';
     row.append(
       makeCell('', 'handle-cell'),
-      makeCell(`${formatTime(last)} 〜 ${formatTime(DAY_END)}`, 'time'),
-      makeCell('—'),
-      makeCell('空き時間'),
+      makeCell(t('time.rangeSpaced', { from: formatTime(last), to: formatTime(DAY_END) }), 'time'),
+      makeCell(t('common.dash')),
+      makeCell(t('schedule.free')),
       makeCell(formatDuration(plan.freeMinutes), 'duration'),
       makeCell('')
     );
@@ -676,12 +746,12 @@ function renderTable(plan) {
     head.className = 'section-row';
     const cell = document.createElement('td');
     cell.colSpan = 6;
-    cell.textContent = `割り当てできなかったタスク（${rangeLabel()} に収まりません。優先順位か所要時間を見直してください）`;
+    cell.textContent = t('schedule.unscheduled', { range: rangeLabel() });
     head.append(cell);
     el.scheduleBody.append(head);
 
     plan.unscheduled.forEach((task) => {
-      el.scheduleBody.append(makeTaskRow(task, '—', true));
+      el.scheduleBody.append(makeTaskRow(task, t('common.dash'), true));
     });
   }
 }
@@ -705,7 +775,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
       step: 1,
       field: 'priority',
       taskId: task.id,
-      label: `${task.name} の優先順位`,
+      label: t('schedule.priorityAria', { name: task.name }),
       onCommit: (value) => changePriority(task.id, value),
     })
   );
@@ -720,7 +790,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
       step: 5,
       field: 'duration',
       taskId: task.id,
-      label: `${task.name} の所要時間（分）`,
+      label: t('schedule.durationAria', { name: task.name }),
       onCommit: (value) => changeDuration(task.id, value),
     }),
     makeSpan(formatDuration(task.duration), 'cell-note')
@@ -729,7 +799,10 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   const nameCell = makeCell(task.name);
   if (task.placedAt !== null) {
     nameCell.append(
-      makeSpan(`配置済み ${labelOfKey(task.placedAt.date)} ${formatTime(task.placedAt.start)}`, 'badge')
+      makeSpan(t('schedule.placedBadge', {
+        date: labelOfKey(task.placedAt.date),
+        time: formatTime(task.placedAt.start),
+      }), 'badge')
     );
   }
 
@@ -737,7 +810,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   addCell.className = 'add-cell';
   const daySelect = document.createElement('select');
   daySelect.className = 'cell-select';
-  daySelect.setAttribute('aria-label', `${task.name} を追加する日`);
+  daySelect.setAttribute('aria-label', t('schedule.dayAria', { name: task.name }));
   for (let day = 0; day < WEEK_LENGTH; day += 1) {
     const option = document.createElement('option');
     option.value = dayKey(day);
@@ -749,7 +822,7 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   daySelect.value = placedInWeek ? task.placedAt.date : dayKey(defaultDayIndex());
   addCell.append(
     daySelect,
-    makeButton('追加', () => addTaskToDay(task.id, daySelect.value), `${task.name} を選んだ日に追加`)
+    makeButton(t('common.add'), () => addTaskToDay(task.id, daySelect.value), t('schedule.addAria', { name: task.name }))
   );
 
   row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell, addCell);
@@ -770,7 +843,11 @@ function addTaskToDay(id, date) {
     placementIssue(task.name, 'task', id, date, start, task.duration) === null);
 
   if (target === undefined) {
-    setBoardStatus(`${labelOfKey(date)} には「${task.name}」（${formatDuration(task.duration)}）を置ける空き時間がありません。`);
+    setBoardStatus(t('board.noRoom', {
+      date: labelOfKey(date),
+      name: task.name,
+      duration: formatDuration(task.duration),
+    }));
     return;
   }
   placeItem('task', id, date, target);
@@ -827,7 +904,7 @@ function renderBoard() {
 
   const headTime = document.createElement('th');
   headTime.scope = 'col';
-  headTime.textContent = '時間';
+  headTime.textContent = t('board.colTime');
   el.boardHead.append(headTime);
 
   for (let day = 0; day < WEEK_LENGTH; day += 1) {
@@ -852,7 +929,10 @@ function renderBoard() {
   for (let index = 0; index < slotCount; index += 1) {
     const start = DAY_START + index * SLOT;
     const row = document.createElement('tr');
-    row.append(makeCell(`${formatTime(start)} 〜 ${formatTime(start + SLOT)}`, 'time'));
+    row.append(makeCell(t('time.rangeSpaced', {
+      from: formatTime(start),
+      to: formatTime(start + SLOT),
+    }), 'time'));
 
     for (let day = 0; day < WEEK_LENGTH; day += 1) {
       const date = dayKey(day);
@@ -867,14 +947,27 @@ function renderBoard() {
   }
 }
 
+/* 表示中の週の範囲（例：2026/8/17（月） 〜 2026/8/23（日）） */
+function weekRangeLabel() {
+  return t('date.range', { from: dayLabelLong(0), to: dayLabelLong(WEEK_LENGTH - 1) });
+}
+
+/* 「」で囲んだ名前を並べる（英語版は引用符とカンマ区切り） */
+function joinNames(names) {
+  const quote = lang === 'ja' ? ['「', '」'] : ['“', '”'];
+  return names.map((name) => `${quote[0]}${name}${quote[1]}`).join(t('common.listSeparator'));
+}
+
 function renderWeekLabel() {
   const weekKeys = new Set(Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)));
   const others = allBoardItems().filter((item) => !weekKeys.has(item.date)).length;
 
-  el.weekLabel.textContent = `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)}` +
-    (weekOffset === 0 ? '（今週）' : weekOffset === -1 ? '（前週）' : weekOffset === 1 ? '（翌週）' : '');
+  el.weekLabel.textContent = weekRangeLabel() +
+    (weekOffset === 0 ? t('board.thisWeek')
+      : weekOffset === -1 ? t('board.lastWeek')
+        : weekOffset === 1 ? t('board.nextWeek') : '');
   if (others > 0) {
-    el.weekLabel.append(makeSpan(`他の週に ${others}件`, 'other-week'));
+    el.weekLabel.append(makeSpan(t('board.otherWeeks', { n: others }), 'other-week'));
   }
   el.thisWeek.classList.toggle('is-current', weekOffset === 0);
   el.thisWeek.disabled = weekOffset === 0;
@@ -886,7 +979,7 @@ function showWeek(offset) {
   fillSelectOptions();
   resetEventForm();
   render();
-  setBoardStatus(`${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} を表示しています。`);
+  setBoardStatus(t('board.showingWeek', { range: weekRangeLabel() }));
 }
 
 function makeBoardCell(item, span) {
@@ -904,22 +997,23 @@ function makeBoardCell(item, span) {
   const name = document.createElement('strong');
   name.textContent = item.name;
   const detail = isPlainEvent
-    ? `予定・${formatDuration(item.duration)}`
-    : `優先${item.priority}・${formatDuration(item.duration)}`;
-  body.append(
-    name,
-    makeSpan(`${formatTime(item.start)}〜${formatTime(item.start + item.duration)}　${detail}`, 'placed-meta')
-  );
+    ? t('board.eventDetail', { duration: formatDuration(item.duration) })
+    : t('board.taskDetail', { priority: item.priority, duration: formatDuration(item.duration) });
+  const timeText = t('time.range', {
+    from: formatTime(item.start),
+    to: formatTime(item.start + item.duration),
+  });
+  body.append(name, makeSpan(`${timeText}　${detail}`, 'placed-meta'));
 
   const actions = document.createElement('div');
   actions.className = 'placed-actions';
   if (item.kind === 'event') {
     actions.append(
-      makeButton('編集', () => startEventEdit(item.id), `予定 ${item.name} を編集`),
-      makeButton('削除', () => removeEvent(item.id), `予定 ${item.name} を削除`, true)
+      makeButton(t('common.edit'), () => startEventEdit(item.id), t('event.editAria', { name: item.name })),
+      makeButton(t('common.delete'), () => removeEvent(item.id), t('event.deleteAria', { name: item.name }), true)
     );
   } else {
-    actions.append(makeButton('解除', () => unplaceTask(item.id), `${item.name} の配置を解除`));
+    actions.append(makeButton(t('common.release'), () => unplaceTask(item.id), t('board.releaseAria', { name: item.name })));
   }
 
   block.append(makeDragHandle(item.kind, item.id, item.name, block), body, actions);
@@ -932,7 +1026,7 @@ function makeDropCell(date, start, isToday) {
   cell.className = 'drop-cell' + (isToday ? ' is-today' : '');
   cell.dataset.date = date;
   cell.dataset.start = String(start);
-  cell.title = `${labelOfKey(date)} ${formatTime(start)}　クリックすると、この時間に予定を追加できます`;
+  cell.title = t('board.dropTitle', { date: labelOfKey(date), time: formatTime(start) });
 
   /* 空きコマをタップ／クリックすると、その日時で予定フォームを開く
    * （ドラッグ直後に合成されるクリックは無視する） */
@@ -941,7 +1035,7 @@ function makeDropCell(date, start, isToday) {
     el.eventDay.value = date;
     el.eventStart.value = String(start);
     el.eventName.focus();
-    setBoardStatus(`${labelOfKey(date)} ${formatTime(start)} 開始の予定を入力できます。`);
+    setBoardStatus(t('board.dropClicked', { date: labelOfKey(date), time: formatTime(start) }));
   });
 
   return cell;
@@ -958,8 +1052,8 @@ function makeDragHandle(kind, id, name, sourceElement) {
   const handle = makeSpan('⠿', 'drag-handle');
   handle.setAttribute('role', 'button');
   handle.setAttribute('tabindex', '0');
-  handle.setAttribute('aria-label', `${name} をドラッグして週間スケジュールに配置`);
-  handle.title = 'ドラッグして週間スケジュールの時間帯に配置';
+  handle.setAttribute('aria-label', t('board.dragAria', { name }));
+  handle.title = t('board.dragTitle');
   handle.addEventListener('pointerdown', (event) => startDrag(event, kind, id, name, sourceElement));
   return handle;
 }
@@ -1095,11 +1189,16 @@ function renderSummary(plan) {
   el.summary.textContent = '';
   const used = plan.scheduled.reduce((sum, entry) => sum + entry.task.duration, 0);
   const rows = [
-    ['タスク数', `${tasks.length} 件`],
-    ['割り当て済み', `${plan.scheduled.length} 件 / ${formatDuration(used)}`],
-    ['空き時間', formatDuration(plan.freeMinutes)],
+    [t('summary.tasks'), t('common.count', { n: tasks.length })],
+    [t('summary.scheduled'), t('summary.scheduledValue', {
+      n: plan.scheduled.length,
+      duration: formatDuration(used),
+    })],
+    [t('summary.free'), formatDuration(plan.freeMinutes)],
   ];
-  if (plan.unscheduled.length) rows.push(['未割り当て', `${plan.unscheduled.length} 件`]);
+  if (plan.unscheduled.length) {
+    rows.push([t('summary.unscheduled'), t('common.count', { n: plan.unscheduled.length })]);
+  }
 
   const dl = document.createElement('dl');
   rows.forEach(([label, value]) => {
@@ -1114,7 +1213,10 @@ function renderSummary(plan) {
 
 /* ---------- Excel 出力・取り込み ---------- */
 
-const EXPORT_HEADER = ['種別', '曜日', '日付', '開始', '終了', '名称', '優先順位', '所要時間（分）'];
+function exportHeader() {
+  return ['excel.colKind', 'excel.colDay', 'excel.colDate', 'excel.colStart',
+    'excel.colEnd', 'excel.colName', 'excel.colPriority', 'excel.colDuration'].map((key) => t(key));
+}
 const EXPORT_WIDTHS = [8, 8, 12, 8, 8, 30, 10, 14];
 
 function exportRange() {
@@ -1134,8 +1236,8 @@ function exportRows() {
     : range === 'week' ? boardItems() : boardItems(selectedDate());
 
   const rows = items.map((item) => [
-    item.kind === 'event' && !item.priority ? '予定' : 'タスク',
-    WEEK_NAMES[(keyToDate(item.date).getDay() + 6) % 7],
+    t(item.kind === 'event' && !item.priority ? 'excel.kindEvent' : 'excel.kindTask'),
+    weekNames()[(keyToDate(item.date).getDay() + 6) % 7],
     item.date,
     formatTime(item.start),
     formatTime(item.start + item.duration),
@@ -1147,7 +1249,7 @@ function exportRows() {
   tasks
     .filter((task) => task.placedAt === null)
     .forEach((task) => {
-      rows.push(['タスク', '', '', '', '', task.name, task.priority, task.duration]);
+      rows.push([t('excel.kindTask'), '', '', '', '', task.name, task.priority, task.duration]);
     });
 
   return rows;
@@ -1162,9 +1264,9 @@ function renderExport() {
   if (rows.length === 0) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = EXPORT_HEADER.length;
+    cell.colSpan = exportHeader().length;
     cell.className = 'center';
-    cell.textContent = '出力する内容がありません。タスクや予定を追加してください。';
+    cell.textContent = t('excel.previewEmpty');
     row.append(cell);
     el.exportBody.append(row);
     return;
@@ -1173,22 +1275,23 @@ function renderExport() {
   rows.forEach((cells) => {
     const row = document.createElement('tr');
     if (cells[1] === '') row.className = 'unplaced-row';
-    cells.forEach((value) => row.append(makeCell(value === '' ? '—' : String(value))));
+    cells.forEach((value) => row.append(makeCell(value === '' ? t('common.dash') : String(value))));
     el.exportBody.append(row);
   });
 }
 
 function downloadWorkbook() {
   const range = exportRange();
-  const rangeName = range === 'all' ? 'すべて' : range === 'week' ? '週単位' : '日単位';
-  const sheetName = range === 'all' ? 'すべて' : range === 'week' ? '週間スケジュール' : selectedDate();
+  const rangeName = t(range === 'all' ? 'excel.all' : range === 'week' ? 'excel.week' : 'excel.day');
+  const sheetName = range === 'all' ? t('excel.sheetAll')
+    : range === 'week' ? t('excel.sheetWeek') : selectedDate();
   const title = range === 'all'
-    ? 'すべてのタスク・予定'
+    ? t('excel.titleAll')
     : range === 'week'
-      ? `${dayLabelLong(0)} 〜 ${dayLabelLong(WEEK_LENGTH - 1)} の週間スケジュール`
-      : `${labelOfKey(selectedDate(), true)} のスケジュール`;
+      ? t('excel.titleWeek', { range: weekRangeLabel() })
+      : t('excel.titleDay', { date: labelOfKey(selectedDate(), true) });
 
-  const rows = [[title], ['範囲', rangeName], EXPORT_HEADER].concat(exportRows());
+  const rows = [[title], [t('excel.rangeRow'), rangeName], exportHeader()].concat(exportRows());
   const blob = XLSX.build(sheetName, rows, EXPORT_WIDTHS);
   const fileName = range === 'all'
     ? `schedule-all-${isoDate(new Date())}.xlsx`
@@ -1204,29 +1307,36 @@ function downloadWorkbook() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  setStatus(`${fileName} を出力しました。`);
+  setStatus(t('excel.downloaded', { file: fileName }));
 }
 
 /* 取り込み：出力した表と同じ見出しを探し、その下の行を読み込む */
 function parseRows(rows) {
-  const headerIndex = rows.findIndex((cells) => cells.includes('種別') && cells.includes('名称'));
+  const hasAlias = (cells, key) => XLSX_ALIASES[key].some((label) => cells.includes(label));
+  const headerIndex = rows.findIndex((cells) => hasAlias(cells, 'kind') && hasAlias(cells, 'name'));
   if (headerIndex < 0) {
-    throw new Error('「種別」「名称」の見出しが見つかりません。このアプリで出力した Excel を選んでください。');
+    throw new Error(t('excel.errorHeader'));
   }
 
   const header = rows[headerIndex];
-  const column = (label) => header.indexOf(label);
+  const column = (key) => {
+    for (const label of XLSX_ALIASES[key]) {
+      const index = header.indexOf(label);
+      if (index >= 0) return index;
+    }
+    return -1;
+  };
   const columns = {
-    kind: column('種別'),
-    day: column('曜日'),
-    date: column('日付'),
-    start: column('開始'),
-    name: column('名称'),
-    priority: column('優先順位'),
-    duration: column('所要時間（分）'),
+    kind: column('kind'),
+    day: column('day'),
+    date: column('date'),
+    start: column('start'),
+    name: column('name'),
+    priority: column('priority'),
+    duration: column('duration'),
   };
   if (columns.name < 0 || columns.duration < 0) {
-    throw new Error('「名称」または「所要時間（分）」の列が見つかりません。');
+    throw new Error(t('excel.errorColumns'));
   }
 
   const entries = [];
@@ -1243,7 +1353,7 @@ function parseRows(rows) {
       return;
     }
 
-    const dayIndex = WEEK_NAMES.indexOf(value('day').replace(/曜日?$/, ''));
+    const dayIndex = weekdayIndexOf(value('day'));
     const startMatch = /^(\d{1,2}):(\d{2})$/.exec(value('start'));
     const start = startMatch
       ? snapToSlot(clamp(Number(startMatch[1]) * 60 + Number(startMatch[2]), DAY_START, DAY_END - SLOT))
@@ -1253,7 +1363,7 @@ function parseRows(rows) {
     const dateCell = value('date');
     const date = keyToDate(dateCell) ? dateCell : (dayIndex >= 0 ? dayKey(dayIndex) : null);
     const placed = date !== null && start !== null;
-    const kind = value('kind') === '予定' ? 'event' : 'task';
+    const kind = XLSX_ALIASES.event.includes(value('kind')) ? 'event' : 'task';
 
     if (kind === 'event' && !placed) {
       skipped += 1;
@@ -1276,15 +1386,20 @@ function parseRows(rows) {
 /* 日単位か週単位かの判定。出力時に入れた「範囲」の行を優先し、
  * 無い場合はタイトルや曜日の散らばりから推測する。 */
 function detectRange(rows, headerIndex, entries) {
+  const includesAny = (value, key) => XLSX_ALIASES[key].some((word) => value.includes(word));
   for (const cells of rows.slice(0, headerIndex)) {
-    const index = cells.indexOf('範囲');
+    const index = XLSX_ALIASES.rangeRow.reduce(
+      (found, label) => (found >= 0 ? found : cells.indexOf(label)), -1);
     if (index >= 0 && cells[index + 1]) {
       const value = cells[index + 1];
-      if (value.includes('すべて')) return 'all';
-      return value.includes('週') ? 'week' : 'day';
+      if (includesAny(value, 'all')) return 'all';
+      return includesAny(value, 'week') ? 'week' : 'day';
     }
-    if (cells.some((cell) => typeof cell === 'string' && cell.includes('すべてのタスク'))) return 'all';
-    if (cells.some((cell) => typeof cell === 'string' && cell.includes('週間スケジュール'))) return 'week';
+    const title = cells.find((cell) => typeof cell === 'string' && cell);
+    if (title) {
+      if (title.includes('すべてのタスク') || title.includes('All tasks')) return 'all';
+      if (title.includes('週間スケジュール') || title.includes('Weekly schedule')) return 'week';
+    }
   }
 
   /* 「範囲」の行が無いファイルは、日付の散らばりから推測する */
@@ -1430,7 +1545,7 @@ async function importWorkbook(file) {
     const { entries, skipped, range } = parseRows(rows);
 
     if (entries.length === 0) {
-      setStatus('取り込める行がありませんでした。');
+      setStatus(t('excel.importEmpty'));
       return;
     }
 
@@ -1440,15 +1555,18 @@ async function importWorkbook(file) {
     let summary;
 
     if (range === 'all') {
-      const message = 'すべての範囲のファイルです。現在のタスク' +
-        `（${tasks.length}件）と予定（${events.length}件）を、` +
-        `ファイルの内容（タスク ${taskRows}件・予定 ${eventRows}件）で置き換えます。よろしいですか？`;
+      const message = t('excel.confirmAll', {
+        tasks: tasks.length,
+        events: events.length,
+        fileTasks: taskRows,
+        fileEvents: eventRows,
+      });
       if (!window.confirm(message)) {
-        setStatus('取り込みを中止しました。');
+        setStatus(t('excel.importCanceled'));
         return;
       }
       result = applyAllImport(entries);
-      summary = `${file.name} ですべてのタスクと予定を置き換えました`;
+      summary = t('excel.summaryAll', { file: file.name });
     } else if (range === 'week') {
       /* ファイルの日付が属する週（日付が無ければ表示中の週）だけを上書きする */
       const dated = entries.find((entry) => entry.date !== null);
@@ -1459,12 +1577,17 @@ async function importWorkbook(file) {
         return isoDate(date);
       });
 
-      const message = `週単位のファイルです。${labelOfKey(weekDates[0], true)} 〜 ` +
-        `${labelOfKey(weekDates[WEEK_LENGTH - 1], true)} の内容を、` +
-        `ファイルの内容（タスク ${taskRows}件・予定 ${eventRows}件）で上書きします。` +
-        '他の週はそのまま残ります。よろしいですか？';
+      const weekRange = t('date.range', {
+        from: labelOfKey(weekDates[0], true),
+        to: labelOfKey(weekDates[WEEK_LENGTH - 1], true),
+      });
+      const message = t('excel.confirmWeek', {
+        range: weekRange,
+        fileTasks: taskRows,
+        fileEvents: eventRows,
+      });
       if (!window.confirm(message)) {
-        setStatus('取り込みを中止しました。');
+        setStatus(t('excel.importCanceled'));
         return;
       }
 
@@ -1474,20 +1597,25 @@ async function importWorkbook(file) {
         /* 別の週の日付は、同じ曜日の位置に読み替える */
         return weekDates[(keyToDate(entry.date).getDay() + 6) % 7];
       });
-      summary = `${file.name} で ${labelOfKey(weekDates[0])} 〜 ${labelOfKey(weekDates[WEEK_LENGTH - 1])} を上書きしました`;
+      summary = t('excel.summaryWeek', {
+        file: file.name,
+        range: t('date.range', {
+          from: labelOfKey(weekDates[0]),
+          to: labelOfKey(weekDates[WEEK_LENGTH - 1]),
+        }),
+      });
     } else {
       const fileEntry = entries.find((entry) => entry.date !== null);
       const date = await askImportDay(
-        `${file.name}（タスク ${taskRows}件・予定 ${eventRows}件）を取り込みます。` +
-        '選んだ日の内容は、ファイルの内容に置き換わります。',
+        t('import.message', { file: file.name, tasks: taskRows, events: eventRows }),
         fileEntry ? fileEntry.date : dayKey(defaultDayIndex())
       );
       if (!date) {
-        setStatus('取り込みを中止しました。');
+        setStatus(t('excel.importCanceled'));
         return;
       }
       result = applyPartialImport(entries, [date], (entry) => (entry.date === null ? null : date));
-      summary = `${file.name} を ${labelOfKey(date, true)} に取り込みました`;
+      summary = t('excel.summaryDay', { file: file.name, date: labelOfKey(date, true) });
     }
 
     save();
@@ -1496,14 +1624,18 @@ async function importWorkbook(file) {
     resetEventForm();
     render();
     setStatus(
-      `${summary}（タスク ${result.taskCount}件・予定 ${result.eventCount}件）。` +
+      t('excel.importResult', {
+        summary,
+        tasks: result.taskCount,
+        events: result.eventCount,
+      }) +
       (result.conflicts.length
-        ? `${result.conflicts.map((name) => `「${name}」`).join('、')}は時間が重なるため配置していません。`
+        ? t('excel.importConflicts', { names: joinNames(result.conflicts) })
         : '') +
-      (skipped ? `${skipped}件は内容が不正なため読み飛ばしました。` : '')
+      (skipped ? t('excel.importSkipped', { n: skipped }) : '')
     );
   } catch (error) {
-    setStatus(`取り込みに失敗しました：${error.message}`);
+    setStatus(t('excel.importFailed', { message: error.message }));
   }
 }
 
@@ -1533,19 +1665,19 @@ function readForm() {
   const duration = Number(el.duration.value);
 
   if (!name) {
-    showError('タスク名を入力してください。');
+    showError(t('form.errorName'));
     return null;
   }
   if (!Number.isFinite(priority) || priority < 1) {
-    showError('優先順位は1以上の数値で入力してください。');
+    showError(t('form.errorPriority'));
     return null;
   }
   if (!Number.isFinite(duration) || duration < 5) {
-    showError('所要時間は5分以上で入力してください。');
+    showError(t('form.errorDurationMin'));
     return null;
   }
   if (duration > MAX_DURATION) {
-    showError(`所要時間は1日の枠（${formatDuration(MAX_DURATION)}）以内で入力してください。`);
+    showError(t('form.errorDurationMax', { max: formatDuration(MAX_DURATION) }));
     return null;
   }
 
@@ -1559,7 +1691,7 @@ function resetForm() {
   el.id.value = '';
   el.priority.value = String(tasks.length + 1);
   el.duration.value = '60';
-  el.submit.textContent = '追加する';
+  el.submit.textContent = t('form.add');
   el.cancel.hidden = true;
   clearError();
 }
@@ -1572,7 +1704,7 @@ function startEdit(id) {
   el.name.value = task.name;
   el.priority.value = String(task.priority);
   el.duration.value = String(task.duration);
-  el.submit.textContent = '更新する';
+  el.submit.textContent = t('form.update');
   el.cancel.hidden = false;
   clearError();
   render();
@@ -1582,7 +1714,7 @@ function startEdit(id) {
 function removeTask(id) {
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
-  if (!window.confirm(`「${task.name}」を削除しますか？`)) return;
+  if (!window.confirm(t('list.confirmDelete', { name: task.name }))) return;
   tasks = tasks.filter((t) => t.id !== id);
   renumber();
   if (editingId === id) resetForm();
@@ -1664,9 +1796,8 @@ el.clearPlanning.addEventListener('click', () => {
   if (tasks.length === 0) return;
   const placed = tasks.filter((task) => task.placedAt !== null);
   const message = placed.length
-    ? `タスク一覧と自動スケジュールをクリアします。週間表に配置済みの ${placed.length}件は、` +
-      'そのまま週間表に残ります（タスク一覧からは消えます）。よろしいですか？'
-    : 'タスク一覧と自動スケジュールをクリアします。よろしいですか？';
+    ? t('list.confirmClearPlanning', { n: placed.length })
+    : t('list.confirmClearPlanningEmpty');
   if (!window.confirm(message)) return;
 
   placed.forEach((task) => {
@@ -1686,13 +1817,13 @@ el.clearPlanning.addEventListener('click', () => {
   resetForm();
   render();
   setBoardStatus(placed.length
-    ? `タスク一覧と自動スケジュールをクリアしました（週間表の ${placed.length}件はそのまま残っています）。`
-    : 'タスク一覧と自動スケジュールをクリアしました。');
+    ? t('list.clearedPlanning', { n: placed.length })
+    : t('list.clearedPlanningEmpty'));
 });
 
 el.clear.addEventListener('click', () => {
   if (tasks.length === 0) return;
-  if (!window.confirm('すべてのタスクを削除しますか？')) return;
+  if (!window.confirm(t('list.confirmClearAll'))) return;
   tasks = [];
   save();
   resetForm();
@@ -1733,7 +1864,7 @@ function resetEventForm() {
   el.eventId.value = '';
   el.eventName.value = '';
   el.eventDuration.value = '60';
-  el.eventSubmit.textContent = '予定を追加';
+  el.eventSubmit.textContent = t('event.add');
   el.eventCancel.hidden = true;
 }
 
@@ -1746,7 +1877,7 @@ function startEventEdit(id) {
   el.eventDay.value = event.date;
   el.eventStart.value = String(event.start);
   el.eventDuration.value = String(event.duration);
-  el.eventSubmit.textContent = '予定を更新';
+  el.eventSubmit.textContent = t('event.update');
   el.eventCancel.hidden = false;
   el.eventName.focus();
 }
@@ -1760,12 +1891,12 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
   const duration = Number(el.eventDuration.value);
 
   if (!name) {
-    setBoardStatus('予定名を入力してください。');
+    setBoardStatus(t('event.errorName'));
     el.eventName.focus();
     return;
   }
   if (!Number.isFinite(duration) || duration < 5 || duration > MAX_DURATION) {
-    setBoardStatus(`所要時間は5分〜${formatDuration(MAX_DURATION)}の範囲で入力してください。`);
+    setBoardStatus(t('event.errorDuration', { max: formatDuration(MAX_DURATION) }));
     el.eventDuration.focus();
     return;
   }
@@ -1777,7 +1908,7 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
     return;
   }
 
-  const action = editingEventId ? '更新' : '追加';
+  const wasEditing = Boolean(editingEventId);
   let target;
   if (editingEventId) {
     target = events.find((e) => e.id === editingEventId);
@@ -1790,21 +1921,25 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
   saveEvents();
   resetEventForm();
   render();
-  setBoardStatus(`${eventLabel(target)}を ${labelOfKey(date)} ${formatTime(start)} に${action}しました。`);
+  setBoardStatus(t(wasEditing ? 'event.updated' : 'event.added', {
+    label: eventLabel(target),
+    date: labelOfKey(date),
+    time: formatTime(start),
+  }));
 });
 
 el.eventCancel.addEventListener('click', () => {
   resetEventForm();
-  setBoardStatus('予定の編集をキャンセルしました。');
+  setBoardStatus(t('event.editCanceled'));
 });
 
 el.clearPlacements.addEventListener('click', () => {
   if (!tasks.some((task) => task.placedAt !== null)) return;
-  if (!window.confirm('週間スケジュールに配置したタスクを、すべての週について解除しますか？')) return;
+  if (!window.confirm(t('board.confirmClearPlacements'))) return;
   tasks.forEach((task) => { task.placedAt = null; });
   save();
   render();
-  setBoardStatus('すべての配置を解除しました。');
+  setBoardStatus(t('board.clearedPlacements'));
 });
 
 el.prevWeek.addEventListener('click', () => showWeek(weekOffset - 1));
@@ -1822,12 +1957,13 @@ document.querySelectorAll('input[name="export-range"]').forEach((radio) => {
   radio.addEventListener('change', renderExport);
 });
 
-/* 時間帯の表記と所要時間の上限は、DAY_START / DAY_END から作る */
-el.rangeLabel.textContent = rangeLabel();
-el.scheduleRange.textContent = rangeLabel();
+el.langSelect.addEventListener('change', () => setLanguage(el.langSelect.value));
+
+/* 所要時間の上限は DAY_START / DAY_END から作る */
 el.duration.max = String(MAX_DURATION);
 el.eventDuration.max = String(MAX_DURATION);
 
+applyStaticText();
 fillSelectOptions();
 resetEventForm();
 resetForm();

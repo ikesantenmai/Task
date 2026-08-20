@@ -433,3 +433,16 @@ body.is-dragging { cursor: grabbing; user-select: none; }
   font-weight: 600;
 }
 .week-label .other-week { margin-left: 10px; font-weight: 400; font-size: .8rem; color: var(--muted); }
+
+/* 言語切り替え */
+.header-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.lang-switch { display: flex; align-items: center; gap: 8px; font-size: .85rem; font-weight: 600; color: var(--muted); }
+.lang-switch select {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}

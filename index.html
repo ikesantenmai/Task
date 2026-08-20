@@ -8,29 +8,38 @@
 </head>
 <body>
 <header class="site-header">
-  <h1>1日のタスクスケジューラー</h1>
-  <p class="lead">タスク・優先順位・所要時間を入力すると、優先度の高いタスクから <strong id="range-label"></strong> に自動で割り当てます。</p>
+  <div class="header-row">
+    <h1 data-i18n="app.title"></h1>
+    <label class="lang-switch">
+      <span data-i18n="lang.label"></span>
+      <select id="lang-select">
+        <option value="ja">日本語</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+  </div>
+  <p class="lead" id="lead"></p>
 </header>
 
 <main class="layout">
   <!-- 入力 -->
   <section class="panel" aria-labelledby="form-heading">
-    <h2 id="form-heading">タスクを追加</h2>
+    <h2 id="form-heading" data-i18n="form.heading"></h2>
     <form id="task-form" novalidate>
       <input type="hidden" id="task-id">
 
       <div class="field">
-        <label for="task-name">タスク名</label>
-        <input type="text" id="task-name" placeholder="例：企画書の作成" maxlength="60" required>
+        <label for="task-name" data-i18n="form.name"></label>
+        <input type="text" id="task-name" data-i18n-placeholder="form.namePlaceholder" maxlength="60" required>
       </div>
 
       <div class="field-row">
         <div class="field">
-          <label for="task-priority">優先順位<span class="hint">（1が最優先）</span></label>
+          <label for="task-priority"><span data-i18n="form.priority"></span><span class="hint" data-i18n="form.priorityHint"></span></label>
           <input type="number" id="task-priority" min="1" max="99" step="1" value="1" required>
         </div>
         <div class="field">
-          <label for="task-duration">所要時間<span class="hint">（分）</span></label>
+          <label for="task-duration"><span data-i18n="form.duration"></span><span class="hint" data-i18n="form.durationHint"></span></label>
           <input type="number" id="task-duration" min="5" step="5" value="60" required>
         </div>
       </div>
@@ -38,8 +47,8 @@
       <p class="error" id="form-error" role="alert" hidden></p>
 
       <div class="form-actions">
-        <button type="submit" class="btn primary" id="submit-btn">追加する</button>
-        <button type="button" class="btn ghost" id="cancel-btn" hidden>キャンセル</button>
+        <button type="submit" class="btn primary" id="submit-btn"></button>
+        <button type="button" class="btn ghost" id="cancel-btn" data-i18n="common.cancel" hidden></button>
       </div>
     </form>
 
@@ -49,34 +58,34 @@
   <!-- タスク一覧 -->
   <section class="panel" aria-labelledby="list-heading">
     <div class="panel-head">
-      <h2 id="list-heading">タスク一覧</h2>
+      <h2 id="list-heading" data-i18n="list.heading"></h2>
       <div class="head-actions">
         <button type="button" class="btn ghost" id="clear-planning-btn"
-          title="タスク一覧と自動スケジュールを空にします。週間表に配置済みのタスクはそのまま残ります。">週間表を残してクリア</button>
-        <button type="button" class="btn ghost danger" id="clear-btn">すべて削除</button>
+          data-i18n="list.clearPlanning" data-i18n-title="list.clearPlanningTitle"></button>
+        <button type="button" class="btn ghost danger" id="clear-btn" data-i18n="list.clearAll"></button>
       </div>
     </div>
     <ul class="task-list" id="task-list"></ul>
-    <p class="empty" id="list-empty">まだタスクがありません。左のフォームから追加してください。</p>
+    <p class="empty" id="list-empty" data-i18n="list.empty"></p>
   </section>
 
   <!-- スケジュール -->
   <section class="panel wide" aria-labelledby="schedule-heading">
     <div class="panel-head">
-      <h2 id="schedule-heading">自動スケジュール（優先順位順・<span id="schedule-range"></span>）</h2>
-      <p class="empty">優先順位と所要時間は、この表で直接変更できます。</p>
+      <h2 id="schedule-heading"></h2>
+      <p class="empty" data-i18n="schedule.hint"></p>
     </div>
     <div class="timeline" id="timeline" aria-hidden="true"></div>
     <div class="table-scroll">
       <table class="schedule" id="schedule-table">
         <thead>
           <tr>
-            <th scope="col"><span class="sr-only">ドラッグ</span></th>
-            <th scope="col">時間</th>
-            <th scope="col">優先順位</th>
-            <th scope="col">タスク名</th>
-            <th scope="col">所要時間（分）</th>
-            <th scope="col">週間表へ追加</th>
+            <th scope="col"><span class="sr-only" data-i18n="board.dragTitle"></span></th>
+            <th scope="col" data-i18n="schedule.colTime"></th>
+            <th scope="col" data-i18n="schedule.colPriority"></th>
+            <th scope="col" data-i18n="schedule.colName"></th>
+            <th scope="col" data-i18n="schedule.colDuration"></th>
+            <th scope="col" data-i18n="schedule.colAdd"></th>
           </tr>
         </thead>
         <tbody id="schedule-body"></tbody>
@@ -87,40 +96,40 @@
   <!-- 手動スケジュール（ドラッグ＆ドロップ） -->
   <section class="panel wide" aria-labelledby="board-heading">
     <div class="panel-head">
-      <h2 id="board-heading">週間スケジュール（ドラッグ＆ドロップ）</h2>
+      <h2 id="board-heading" data-i18n="board.heading"></h2>
       <div class="head-actions">
         <div class="week-nav">
-          <button type="button" class="btn ghost btn-small" id="prev-week" aria-label="前の週を表示">← 前週</button>
-          <button type="button" class="btn ghost btn-small" id="this-week">今週</button>
-          <button type="button" class="btn ghost btn-small" id="next-week" aria-label="次の週を表示">翌週 →</button>
+          <button type="button" class="btn ghost btn-small" id="prev-week" data-i18n="board.prev" data-i18n-aria="board.prevAria"></button>
+          <button type="button" class="btn ghost btn-small" id="this-week" data-i18n="board.this"></button>
+          <button type="button" class="btn ghost btn-small" id="next-week" data-i18n="board.next" data-i18n-aria="board.nextAria"></button>
         </div>
-        <button type="button" class="btn ghost danger" id="clear-placements">配置をすべて解除</button>
+        <button type="button" class="btn ghost danger" id="clear-placements" data-i18n="board.clearPlacements"></button>
       </div>
     </div>
     <p class="week-label" id="week-label"></p>
-    <p class="empty">上の自動スケジュール表の行を、この週間表の空いている時間帯にドラッグすると、その日時に固定できます。優先度のない予定（会議・昼休みなど）は下のフォームから直接追加できます。配置したタスク・予定は、どちらも週内の別の日時へドラッグで移動できます（スマートフォン・タブレットのタッチ操作にも対応）。</p>
+    <p class="empty" data-i18n="board.note"></p>
 
     <form class="event-form" id="event-form" novalidate>
       <input type="hidden" id="event-id">
       <div class="field">
-        <label for="event-name">予定名</label>
-        <input type="text" id="event-name" placeholder="例：昼休み" maxlength="40" required>
+        <label for="event-name" data-i18n="event.name"></label>
+        <input type="text" id="event-name" data-i18n-placeholder="event.namePlaceholder" maxlength="40" required>
       </div>
       <div class="field">
-        <label for="event-day">日</label>
+        <label for="event-day" data-i18n="event.day"></label>
         <select id="event-day"></select>
       </div>
       <div class="field">
-        <label for="event-start">開始時刻</label>
+        <label for="event-start" data-i18n="event.start"></label>
         <select id="event-start"></select>
       </div>
       <div class="field">
-        <label for="event-duration">所要時間（分）</label>
+        <label for="event-duration" data-i18n="event.duration"></label>
         <input type="number" id="event-duration" min="5" step="5" value="60" required>
       </div>
       <div class="event-actions">
-        <button type="submit" class="btn primary btn-small" id="event-submit">予定を追加</button>
-        <button type="button" class="btn ghost btn-small" id="event-cancel" hidden>キャンセル</button>
+        <button type="submit" class="btn primary btn-small" id="event-submit"></button>
+        <button type="button" class="btn ghost btn-small" id="event-cancel" data-i18n="common.cancel" hidden></button>
       </div>
     </form>
     <div class="table-scroll">
@@ -137,32 +146,32 @@
   <!-- Excel出力・取り込み -->
   <section class="panel wide" aria-labelledby="excel-heading">
     <div class="panel-head">
-      <h2 id="excel-heading">Excel出力・取り込み</h2>
+      <h2 id="excel-heading" data-i18n="excel.heading"></h2>
       <div class="export-actions">
-        <div class="export-range" role="radiogroup" aria-label="出力範囲">
-          <label><input type="radio" name="export-range" value="day" checked> 日単位</label>
-          <label><input type="radio" name="export-range" value="week"> 週単位</label>
-          <label><input type="radio" name="export-range" value="all"> すべて</label>
+        <div class="export-range" role="radiogroup" data-i18n-aria="excel.rangeAria">
+          <label><input type="radio" name="export-range" value="day" checked> <span data-i18n="excel.day"></span></label>
+          <label><input type="radio" name="export-range" value="week"> <span data-i18n="excel.week"></span></label>
+          <label><input type="radio" name="export-range" value="all"> <span data-i18n="excel.all"></span></label>
         </div>
-        <select id="export-day" aria-label="出力する日"></select>
-        <button type="button" class="btn primary" id="download-btn">Excel（.xlsx）を出力</button>
-        <label class="btn ghost file-btn" for="import-file">Excelを取り込む</label>
+        <select id="export-day" data-i18n-aria="excel.dayAria"></select>
+        <button type="button" class="btn primary" id="download-btn" data-i18n="excel.download"></button>
+        <label class="btn ghost file-btn" for="import-file" data-i18n="excel.import"></label>
         <input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
       </div>
     </div>
-    <p class="empty">出力した Excel はそのまま取り込めます。日単位のファイルは日を選んでその日だけ、週単位のファイルはその週だけを上書きし、「すべて」のファイルは全期間のタスクと予定を置き換えます。</p>
+    <p class="empty" data-i18n="excel.note"></p>
     <div class="table-scroll">
       <table class="schedule preview" id="export-preview">
         <thead>
           <tr>
-            <th scope="col">種別</th>
-            <th scope="col">曜日</th>
-            <th scope="col">日付</th>
-            <th scope="col">開始</th>
-            <th scope="col">終了</th>
-            <th scope="col">名称</th>
-            <th scope="col">優先順位</th>
-            <th scope="col">所要時間（分）</th>
+            <th scope="col" data-i18n="excel.colKind"></th>
+            <th scope="col" data-i18n="excel.colDay"></th>
+            <th scope="col" data-i18n="excel.colDate"></th>
+            <th scope="col" data-i18n="excel.colStart"></th>
+            <th scope="col" data-i18n="excel.colEnd"></th>
+            <th scope="col" data-i18n="excel.colName"></th>
+            <th scope="col" data-i18n="excel.colPriority"></th>
+            <th scope="col" data-i18n="excel.colDuration"></th>
           </tr>
         </thead>
         <tbody id="export-body"></tbody>
@@ -175,31 +184,32 @@
 
 <!-- 日単位のExcelを取り込む曜日を選ぶダイアログ -->
 <dialog id="import-dialog" class="conflict" aria-labelledby="import-heading">
-  <h2 id="import-heading">日単位のExcelを取り込みます</h2>
+  <h2 id="import-heading" data-i18n="import.heading"></h2>
   <p id="import-message"></p>
   <div class="field">
-    <label for="import-day">取り込む曜日</label>
+    <label for="import-day" data-i18n="import.dayLabel"></label>
     <select id="import-day"></select>
   </div>
   <div class="conflict-foot">
-    <button type="button" class="btn ghost" id="import-cancel">キャンセル</button>
-    <button type="button" class="btn primary" id="import-confirm">この曜日に取り込む</button>
+    <button type="button" class="btn ghost" id="import-cancel" data-i18n="common.cancel"></button>
+    <button type="button" class="btn primary" id="import-confirm" data-i18n="import.confirm"></button>
   </div>
 </dialog>
 
 <!-- 優先順位の重複時に比較して選ぶダイアログ -->
 <dialog id="conflict-dialog" class="conflict" aria-labelledby="conflict-heading">
-  <h2 id="conflict-heading">優先順位が重複しています</h2>
+  <h2 id="conflict-heading" data-i18n="conflict.heading"></h2>
   <p id="conflict-message"></p>
   <div class="conflict-options">
     <button type="button" class="conflict-option" id="choose-moving"></button>
     <button type="button" class="conflict-option" id="choose-existing"></button>
   </div>
   <div class="conflict-foot">
-    <button type="button" class="btn ghost" id="conflict-cancel">キャンセル</button>
+    <button type="button" class="btn ghost" id="conflict-cancel" data-i18n="common.cancel"></button>
   </div>
 </dialog>
 
+<script src="i18n.js"></script>
 <script src="xlsx.js"></script>
 <script src="app.js"></script>
 </body>
