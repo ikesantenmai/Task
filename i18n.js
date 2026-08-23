@@ -180,6 +180,16 @@ const I18N = {
     'excel.importSkipped': '{n}件は内容が不正なため読み飛ばしました。',
     'excel.importFailed': '取り込みに失敗しました：{message}',
 
+    'board.allDay': '終日',
+    'board.allDayAddAria': '{date} に終日の予定を追加',
+    'board.allDayCellAria': '{date} の終日の予定',
+    'board.allDayMoved': '{label}を {date} の終日に移動しました。',
+    'board.allDayOnly': '終日の枠には、終日の予定だけを置けます。',
+    'event.allDay': '終日',
+    'event.addedAllDay': '{label}を {date} の終日に追加しました。',
+    'event.updatedAllDay': '{label}を {date} の終日に更新しました。',
+    'excel.allDay': '終日',
+
     'calendar.heading': 'カレンダー',
     'calendar.prev': '← 前月',
     'calendar.prevAria': '前の月を表示',
@@ -376,6 +386,16 @@ const I18N = {
     'excel.importSkipped': 'Skipped {n} invalid row(s).',
     'excel.importFailed': 'Import failed: {message}',
 
+    'board.allDay': 'All day',
+    'board.allDayAddAria': 'Add an all-day event on {date}',
+    'board.allDayCellAria': 'All-day events on {date}',
+    'board.allDayMoved': 'Moved {label} to all day on {date}.',
+    'board.allDayOnly': 'The all-day row only accepts all-day events.',
+    'event.allDay': 'All day',
+    'event.addedAllDay': 'Added {label} as an all-day event on {date}.',
+    'event.updatedAllDay': 'Updated {label} to an all-day event on {date}.',
+    'excel.allDay': 'All day',
+
     'calendar.heading': 'Calendar',
     'calendar.prev': '← Prev month',
     'calendar.prevAria': 'Show the previous month',
@@ -421,4 +441,5 @@ const XLSX_ALIASES = {
   event: ['予定', 'Event'],
   all: ['すべて', 'All'],
   week: ['週', 'Week'],
+  allDay: ['終日', 'All day'],
 };

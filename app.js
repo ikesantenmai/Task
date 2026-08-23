@@ -56,6 +56,7 @@ const el = {
   eventName: document.getElementById('event-name'),
   eventDay: document.getElementById('event-day'),
   eventStart: document.getElementById('event-start'),
+  eventAllDay: document.getElementById('event-allday'),
   eventDuration: document.getElementById('event-duration'),
   eventSubmit: document.getElementById('event-submit'),
   eventCancel: document.getElementById('event-cancel'),
@@ -320,13 +321,14 @@ function load() {
 function loadEvents() {
   const stored = readJson([EVENTS_KEY].concat(LEGACY_EVENTS_KEYS)) || [];
   return stored
-    .filter((e) => e && typeof e.name === 'string' && Number.isFinite(Number(e.start)))
+    .filter((e) => e && typeof e.name === 'string' && (e.allDay || Number.isFinite(Number(e.start))))
     .map((e, i) => ({
       id: String(e.id || `event-${Date.now()}-${i}`),
       name: e.name,
       date: keyToDate(e.date) ? e.date : keyFromWeekday(e.day),
-      start: snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
-      duration: clamp(Number(e.duration) || 30, 5, MAX_DURATION),
+      allDay: Boolean(e.allDay),
+      start: e.allDay ? null : snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
+      duration: e.allDay ? 0 : clamp(Number(e.duration) || 30, 5, MAX_DURATION),
       priority: Number(e.priority) > 0 ? clamp(Number(e.priority), 1, 99) : null,
     }));
 }
@@ -397,7 +399,7 @@ function allBoardItems() {
       duration: task.duration,
       priority: task.priority,
     }));
-  const eventItems = events.map((event) => ({
+  const eventItems = events.filter((event) => !event.allDay).map((event) => ({
     kind: 'event',
     id: event.id,
     name: event.name,
@@ -417,6 +419,11 @@ function boardItems(date) {
   return allBoardItems()
     .filter((item) => keys.has(item.date))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+}
+
+/* 指定日の終日の予定（登録順） */
+function allDayEvents(date) {
+  return events.filter((event) => event.allDay && event.date === date);
 }
 
 function isFree(kind, id, date, start, duration) {
@@ -465,6 +472,15 @@ function moveEvent(id, date, start) {
   const event = events.find((e) => e.id === id);
   if (!event) return;
 
+  /* 終日の予定は時間帯を持たないので、日付だけを移す */
+  if (event.allDay) {
+    event.date = date;
+    saveEvents();
+    render();
+    setBoardStatus(t('board.allDayMoved', { label: eventLabel(event), date: labelOfKey(date) }));
+    return;
+  }
+
   const issue = placementIssue(event.name, 'event', id, date, start, event.duration);
   if (issue) {
     setBoardStatus(issue);
@@ -501,7 +517,9 @@ function removeEvent(id) {
 
 /* 所要時間の変更などで配置が成立しなくなったタスクは解除する（予定は動かさない） */
 function validatePlacements() {
-  const fixed = events.map((event) => ({ date: event.date, start: event.start, duration: event.duration }));
+  const fixed = events
+    .filter((event) => !event.allDay)
+    .map((event) => ({ date: event.date, start: event.start, duration: event.duration }));
   const dropped = [];
 
   tasks
@@ -934,6 +952,8 @@ function renderBoard() {
 
   el.clearPlacements.hidden = !tasks.some((task) => task.placedAt !== null);
 
+  el.board.append(makeAllDayRow());
+
   const slotCount = (DAY_END - DAY_START) / SLOT;
   for (let index = 0; index < slotCount; index += 1) {
     const start = DAY_START + index * SLOT;
@@ -989,6 +1009,78 @@ function showWeek(offset) {
   resetEventForm();
   render();
   setBoardStatus(t('board.showingWeek', { range: weekRangeLabel() }));
+}
+
+/* 週間表のいちばん上に置く終日の行。1日に何件でも並べられる。 */
+function makeAllDayRow() {
+  const row = document.createElement('tr');
+  row.className = 'allday-row';
+  row.append(makeCell(t('board.allDay'), 'time'));
+
+  for (let day = 0; day < WEEK_LENGTH; day += 1) {
+    const date = dayKey(day);
+    const cell = document.createElement('td');
+    cell.className = 'allday-cell drop-cell' + (day === todayIndex() ? ' is-today' : '');
+    cell.dataset.date = date;
+    cell.dataset.allday = '1';
+    cell.setAttribute('aria-label', t('board.allDayCellAria', { date: labelOfKey(date) }));
+
+    allDayEvents(date).forEach((event) => cell.append(makeAllDayChip(event)));
+
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'allday-add';
+    add.textContent = '＋';
+    add.setAttribute('aria-label', t('board.allDayAddAria', { date: labelOfKey(date) }));
+    add.addEventListener('click', () => startAllDayEntry(date));
+    cell.append(add);
+
+    row.append(cell);
+  }
+  return row;
+}
+
+function makeAllDayChip(event) {
+  const chip = document.createElement('div');
+  chip.className = 'allday-chip';
+  chip.dataset.itemId = event.id;
+
+  chip.append(makeDragHandle('event', event.id, event.name, chip));
+
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'allday-name';
+  name.textContent = event.name;
+  name.title = t('event.editAria', { name: event.name });
+  name.addEventListener('click', () => startEventEdit(event.id));
+  chip.append(name);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'allday-remove';
+  remove.textContent = '×';
+  remove.setAttribute('aria-label', t('event.deleteAria', { name: event.name }));
+  remove.addEventListener('click', () => removeEvent(event.id));
+  chip.append(remove);
+
+  return chip;
+}
+
+/* 終日の枠の「＋」から、その日の終日の予定を入力する */
+function startAllDayEntry(date) {
+  resetEventForm();
+  el.eventAllDay.checked = true;
+  el.eventDay.value = date;
+  syncAllDayFields();
+  el.eventName.focus();
+  setBoardStatus(t('board.dropClicked', { date: labelOfKey(date), time: t('board.allDay') }));
+}
+
+/* 終日にチェックが入っている間は、開始時刻と所要時間を使わない */
+function syncAllDayFields() {
+  const allDay = el.eventAllDay.checked;
+  el.eventStart.disabled = allDay;
+  el.eventDuration.disabled = allDay;
 }
 
 function makeBoardCell(item, span) {
@@ -1162,9 +1254,24 @@ function onDragEnd(event) {
   const { kind, id } = dragState;
   const cell = dropCellFromPoint(event.clientX, event.clientY);
   finishDrag();
-  if (cell) {
-    placeItem(kind, id, cell.dataset.date, Number(cell.dataset.start));
+  if (!cell) return;
+
+  if (cell.dataset.allday === '1') {
+    const event = events.find((e) => e.id === id);
+    if (kind !== 'event' || !event || !event.allDay) {
+      setBoardStatus(t('board.allDayOnly'));
+      return;
+    }
+    moveEvent(id, cell.dataset.date, null);
+    return;
   }
+
+  const dropped = events.find((e) => e.id === id);
+  if (kind === 'event' && dropped && dropped.allDay) {
+    setBoardStatus(t('board.allDayOnly'));
+    return;
+  }
+  placeItem(kind, id, cell.dataset.date, Number(cell.dataset.start));
 }
 
 function onDragCancel() {
@@ -1230,10 +1337,20 @@ function renderCalendar() {
   /* 月の1日を含む週の月曜から6週間分を並べる */
   const first = mondayOf(monthStart);
   const itemsByDate = new Map();
-  allBoardItems().forEach((item) => {
+  const push = (item) => {
     if (!itemsByDate.has(item.date)) itemsByDate.set(item.date, []);
     itemsByDate.get(item.date).push(item);
-  });
+  };
+  events.filter((event) => event.allDay).forEach((event) => push({
+    kind: 'event',
+    id: event.id,
+    name: event.name,
+    date: event.date,
+    start: null,
+    duration: 0,
+    priority: null,
+  }));
+  allBoardItems().forEach(push);
 
   el.calendarGrid.textContent = '';
   for (let i = 0; i < CALENDAR_ROWS * WEEK_LENGTH; i += 1) {
@@ -1245,7 +1362,12 @@ function renderCalendar() {
 
 function makeCalendarCell(date, monthIndex, itemsByDate) {
   const key = isoDate(date);
-  const items = (itemsByDate.get(key) || []).slice().sort((a, b) => a.start - b.start);
+  /* 終日の予定を先に、そのあと開始時刻の順に並べる */
+  const items = (itemsByDate.get(key) || []).slice().sort((a, b) => {
+    if (a.start === null) return b.start === null ? 0 : -1;
+    if (b.start === null) return 1;
+    return a.start - b.start;
+  });
   const weekday = (date.getDay() + 6) % 7;
 
   const cell = document.createElement('button');
@@ -1269,9 +1391,14 @@ function makeCalendarCell(date, monthIndex, itemsByDate) {
 
   items.slice(0, MAX_CHIPS).forEach((item) => {
     const chip = document.createElement('span');
-    chip.className = 'calendar-chip' + (item.kind === 'event' && !item.priority ? ' is-event' : '');
-    chip.textContent = `${formatTime(item.start)} ${item.name}`;
-    chip.title = `${t('time.range', {
+    const isAllDay = item.start === null;
+    chip.className = 'calendar-chip' +
+      (item.kind === 'event' && !item.priority ? ' is-event' : '') +
+      (isAllDay ? ' is-allday' : '');
+    chip.textContent = isAllDay
+      ? `${t('board.allDay')} ${item.name}`
+      : `${formatTime(item.start)} ${item.name}`;
+    chip.title = isAllDay ? `${t('board.allDay')}　${item.name}` : `${t('time.range', {
       from: formatTime(item.start),
       to: formatTime(item.start + item.duration),
     })}　${item.name}`;
@@ -1357,13 +1484,35 @@ function selectedDate() {
 }
 
 /* 出力する行。週単位は1週間分＋未配置タスク、日単位はその日の分＋未配置タスク。 */
+/* 終日の予定も、開始時刻の欄を「終日」にして同じ表に並べる */
+function allDayRows(dates) {
+  return events
+    .filter((event) => event.allDay && (dates === null || dates.has(event.date)))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .map((event) => [
+      t('excel.kindEvent'),
+      weekNames()[(keyToDate(event.date).getDay() + 6) % 7],
+      event.date,
+      t('excel.allDay'),
+      '',
+      event.name,
+      '',
+      '',
+    ]);
+}
+
 function exportRows() {
   const range = exportRange();
   const items = range === 'all'
     ? allBoardItems().slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start))
     : range === 'week' ? boardItems() : boardItems(selectedDate());
 
-  const rows = items.map((item) => [
+  const dates = range === 'all' ? null
+    : range === 'week'
+      ? new Set(Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)))
+      : new Set([selectedDate()]);
+
+  const rows = allDayRows(dates).concat(items.map((item) => [
     t(item.kind === 'event' && !item.priority ? 'excel.kindEvent' : 'excel.kindTask'),
     weekNames()[(keyToDate(item.date).getDay() + 6) % 7],
     item.date,
@@ -1372,7 +1521,7 @@ function exportRows() {
     item.name,
     item.priority || '',
     item.duration,
-  ]);
+  ]));
 
   tasks
     .filter((task) => task.placedAt === null)
@@ -1475,8 +1624,9 @@ function parseRows(rows) {
     const name = value('name');
     if (!name) return;
 
+    const isAllDay = XLSX_ALIASES.allDay.includes(value('start'));
     const duration = Number(value('duration'));
-    if (!Number.isFinite(duration) || duration < 5) {
+    if (!isAllDay && (!Number.isFinite(duration) || duration < 5)) {
       skipped += 1;
       return;
     }
@@ -1490,8 +1640,8 @@ function parseRows(rows) {
     /* 日付があればそれを使い、無ければ曜日を表示中の週に当てはめる */
     const dateCell = value('date');
     const date = keyToDate(dateCell) ? dateCell : (dayIndex >= 0 ? dayKey(dayIndex) : null);
-    const placed = date !== null && start !== null;
-    const kind = XLSX_ALIASES.event.includes(value('kind')) ? 'event' : 'task';
+    const placed = date !== null && (start !== null || isAllDay);
+    const kind = XLSX_ALIASES.event.includes(value('kind')) || isAllDay ? 'event' : 'task';
 
     if (kind === 'event' && !placed) {
       skipped += 1;
@@ -1501,10 +1651,11 @@ function parseRows(rows) {
     entries.push({
       kind,
       name,
-      duration: clamp(duration, 5, MAX_DURATION),
+      allDay: isAllDay,
+      duration: isAllDay ? 0 : clamp(duration, 5, MAX_DURATION),
       priority: Number(value('priority')) || null,
       date: placed ? date : null,
-      start: placed ? start : null,
+      start: isAllDay ? null : (placed ? start : null),
     });
   });
 
@@ -1552,6 +1703,7 @@ function applyAllImport(entries) {
         id: newId('event-'),
         name: entry.name,
         date: entry.date,
+        allDay: Boolean(entry.allDay),
         start: entry.start,
         duration: entry.duration,
         priority: entry.priority,
@@ -1595,11 +1747,18 @@ function applyPartialImport(entries, clearDates, resolveDate) {
     if (entry.kind === 'event') {
       if (date === null) return;
       const id = newId('event-');
+      if (entry.allDay) {
+        events.push({ id, name: entry.name, date, allDay: true, start: null, duration: 0, priority: null });
+        eventCount += 1;
+        return;
+      }
       if (placementIssue(entry.name, 'event', id, date, entry.start, entry.duration)) {
         conflicts.push(entry.name);
         return;
       }
-      events.push({ id, name: entry.name, date, start: entry.start, duration: entry.duration, priority: null });
+      events.push({
+        id, name: entry.name, date, allDay: false, start: entry.start, duration: entry.duration, priority: null,
+      });
       eventCount += 1;
       return;
     }
@@ -1933,6 +2092,7 @@ el.clearPlanning.addEventListener('click', () => {
       id: newId('event-'),
       name: task.name,
       date: task.placedAt.date,
+      allDay: false,
       start: task.placedAt.start,
       duration: task.duration,
       priority: task.priority,
@@ -1992,6 +2152,8 @@ function resetEventForm() {
   el.eventId.value = '';
   el.eventName.value = '';
   el.eventDuration.value = '60';
+  el.eventAllDay.checked = false;
+  syncAllDayFields();
   el.eventSubmit.textContent = t('event.add');
   el.eventCancel.hidden = true;
 }
@@ -2003,8 +2165,12 @@ function startEventEdit(id) {
   el.eventId.value = id;
   el.eventName.value = event.name;
   el.eventDay.value = event.date;
-  el.eventStart.value = String(event.start);
-  el.eventDuration.value = String(event.duration);
+  el.eventAllDay.checked = Boolean(event.allDay);
+  if (!event.allDay) {
+    el.eventStart.value = String(event.start);
+    el.eventDuration.value = String(event.duration);
+  }
+  syncAllDayFields();
   el.eventSubmit.textContent = t('event.update');
   el.eventCancel.hidden = false;
   el.eventName.focus();
@@ -2015,6 +2181,7 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
 
   const name = el.eventName.value.trim();
   const date = el.eventDay.value;
+  const allDay = el.eventAllDay.checked;
   const start = Number(el.eventStart.value);
   const duration = Number(el.eventDuration.value);
 
@@ -2023,38 +2190,49 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
     el.eventName.focus();
     return;
   }
-  if (!Number.isFinite(duration) || duration < 5 || duration > MAX_DURATION) {
+  if (!allDay && (!Number.isFinite(duration) || duration < 5 || duration > MAX_DURATION)) {
     setBoardStatus(t('event.errorDuration', { max: formatDuration(MAX_DURATION) }));
     el.eventDuration.focus();
     return;
   }
 
   const id = editingEventId || `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const issue = placementIssue(name, 'event', id, date, start, duration);
-  if (issue) {
-    setBoardStatus(issue);
-    return;
+  if (!allDay) {
+    const issue = placementIssue(name, 'event', id, date, start, duration);
+    if (issue) {
+      setBoardStatus(issue);
+      return;
+    }
   }
 
   const wasEditing = Boolean(editingEventId);
+  const values = allDay
+    ? { name, date, allDay: true, start: null, duration: 0 }
+    : { name, date, allDay: false, start, duration };
+
   let target;
   if (editingEventId) {
     target = events.find((e) => e.id === editingEventId);
-    Object.assign(target, { name, date, start, duration });   /* 優先順位は保持する */
+    Object.assign(target, values);   /* 優先順位は保持する */
   } else {
-    target = { id, name, date, start, duration, priority: null };
+    target = Object.assign({ id, priority: null }, values);
     events.push(target);
   }
 
   saveEvents();
   resetEventForm();
   render();
-  setBoardStatus(t(wasEditing ? 'event.updated' : 'event.added', {
+  const messageKey = allDay
+    ? (wasEditing ? 'event.updatedAllDay' : 'event.addedAllDay')
+    : (wasEditing ? 'event.updated' : 'event.added');
+  setBoardStatus(t(messageKey, {
     label: eventLabel(target),
     date: labelOfKey(date),
-    time: formatTime(start),
+    time: allDay ? t('board.allDay') : formatTime(start),
   }));
 });
+
+el.eventAllDay.addEventListener('change', syncAllDayFields);
 
 el.eventCancel.addEventListener('click', () => {
   resetEventForm();
