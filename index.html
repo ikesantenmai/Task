@@ -180,6 +180,25 @@
     <p class="empty" id="export-status" role="status" aria-live="polite"></p>
   </section>
 
+  <!-- 月間カレンダー -->
+  <section class="panel wide" aria-labelledby="calendar-heading">
+    <div class="panel-head">
+      <h2 id="calendar-heading" data-i18n="calendar.heading"></h2>
+      <div class="week-nav">
+        <button type="button" class="btn ghost btn-small" id="prev-month" data-i18n="calendar.prev" data-i18n-aria="calendar.prevAria"></button>
+        <button type="button" class="btn ghost btn-small" id="this-month" data-i18n="calendar.this"></button>
+        <button type="button" class="btn ghost btn-small" id="next-month" data-i18n="calendar.next" data-i18n-aria="calendar.nextAria"></button>
+      </div>
+    </div>
+    <p class="week-label" id="calendar-label"></p>
+    <p class="empty" data-i18n="calendar.note"></p>
+    <div class="calendar" id="calendar">
+      <div class="calendar-head" id="calendar-head"></div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+    </div>
+    <p class="empty" id="calendar-status" role="status" aria-live="polite"></p>
+  </section>
+
 </main>
 
 <!-- 日単位のExcelを取り込む曜日を選ぶダイアログ -->

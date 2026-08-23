@@ -41,6 +41,13 @@ const el = {
   scheduleHeading: document.getElementById('schedule-heading'),
   langSelect: document.getElementById('lang-select'),
   weekLabel: document.getElementById('week-label'),
+  calendarHead: document.getElementById('calendar-head'),
+  calendarGrid: document.getElementById('calendar-grid'),
+  calendarLabel: document.getElementById('calendar-label'),
+  calendarStatus: document.getElementById('calendar-status'),
+  prevMonth: document.getElementById('prev-month'),
+  thisMonth: document.getElementById('this-month'),
+  nextMonth: document.getElementById('next-month'),
   prevWeek: document.getElementById('prev-week'),
   thisWeek: document.getElementById('this-week'),
   nextWeek: document.getElementById('next-week'),
@@ -138,6 +145,7 @@ function setLanguage(next) {
 
 const THIS_MONDAY = mondayOf(new Date());
 let weekOffset = 0;                 // 0＝今週、-1＝前週、1＝翌週
+let monthOffset = 0;                // カレンダーで表示中の月（0＝今月）
 
 function startOfDay(date) {
   const copy = new Date(date);
@@ -622,6 +630,7 @@ function render() {
   renderTimeline(plan);
   renderTable(plan);
   renderBoard();
+  renderCalendar();
   renderSummary(plan);
   renderExport();
   if (dropped.length) {
@@ -1183,6 +1192,125 @@ function setBoardStatus(message) {
   if (message) {
     boardStatusTimer = window.setTimeout(() => { el.boardStatus.textContent = ''; }, 4000);
   }
+}
+
+/* ---------- 月間カレンダー ---------- */
+
+const CALENDAR_ROWS = 6;
+const MAX_CHIPS = 3;
+
+function viewedMonthStart() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + monthOffset);
+  return date;
+}
+
+function renderCalendar() {
+  const monthStart = viewedMonthStart();
+  const monthIndex = monthStart.getMonth();
+
+  el.calendarLabel.textContent = t('calendar.month', {
+    y: monthStart.getFullYear(),
+    m: monthIndex + 1,
+    monthName: (MONTH_NAMES_BY_LANG[lang] || MONTH_NAMES_BY_LANG.ja)[monthIndex],
+  });
+  el.thisMonth.classList.toggle('is-current', monthOffset === 0);
+  el.thisMonth.disabled = monthOffset === 0;
+
+  el.calendarHead.textContent = '';
+  weekNames().forEach((name, index) => {
+    const cell = document.createElement('div');
+    cell.className = 'calendar-weekday' + (index >= 5 ? ' is-weekend' : '');
+    cell.textContent = name;
+    el.calendarHead.append(cell);
+  });
+
+  /* 月の1日を含む週の月曜から6週間分を並べる */
+  const first = mondayOf(monthStart);
+  const itemsByDate = new Map();
+  allBoardItems().forEach((item) => {
+    if (!itemsByDate.has(item.date)) itemsByDate.set(item.date, []);
+    itemsByDate.get(item.date).push(item);
+  });
+
+  el.calendarGrid.textContent = '';
+  for (let i = 0; i < CALENDAR_ROWS * WEEK_LENGTH; i += 1) {
+    const date = new Date(first);
+    date.setDate(date.getDate() + i);
+    el.calendarGrid.append(makeCalendarCell(date, monthIndex, itemsByDate));
+  }
+}
+
+function makeCalendarCell(date, monthIndex, itemsByDate) {
+  const key = isoDate(date);
+  const items = (itemsByDate.get(key) || []).slice().sort((a, b) => a.start - b.start);
+  const weekday = (date.getDay() + 6) % 7;
+
+  const cell = document.createElement('button');
+  cell.type = 'button';
+  cell.className = 'calendar-day' +
+    (date.getMonth() === monthIndex ? '' : ' is-other-month') +
+    (key === todayKey() ? ' is-today' : '') +
+    (weekday >= 5 ? ' is-weekend' : '');
+  cell.dataset.date = key;
+  cell.setAttribute('aria-label', t('calendar.dayAria', { date: labelOfKey(key, true), n: items.length }));
+  cell.addEventListener('click', () => showWeekOf(key));
+
+  const head = document.createElement('span');
+  head.className = 'calendar-date';
+  head.textContent = String(date.getDate());
+  cell.append(head);
+
+  if (key === todayKey()) {
+    cell.append(makeSpan(t('calendar.today'), 'calendar-today'));
+  }
+
+  items.slice(0, MAX_CHIPS).forEach((item) => {
+    const chip = document.createElement('span');
+    chip.className = 'calendar-chip' + (item.kind === 'event' && !item.priority ? ' is-event' : '');
+    chip.textContent = `${formatTime(item.start)} ${item.name}`;
+    chip.title = `${t('time.range', {
+      from: formatTime(item.start),
+      to: formatTime(item.start + item.duration),
+    })}　${item.name}`;
+    cell.append(chip);
+  });
+
+  if (items.length > MAX_CHIPS) {
+    cell.append(makeSpan(t('calendar.more', { n: items.length - MAX_CHIPS }), 'calendar-more'));
+  }
+
+  return cell;
+}
+
+/* カレンダーの日付から、その週を週間スケジュールに表示する */
+function showWeekOf(key) {
+  const date = keyToDate(key);
+  if (!date) return;
+  const diff = Math.round((mondayOf(date) - THIS_MONDAY) / (7 * 24 * 60 * 60 * 1000));
+  weekOffset = diff;
+  fillSelectOptions();
+  resetEventForm();
+  render();
+  setCalendarStatus(t('calendar.jumped', { date: labelOfKey(key, true) }));
+  document.getElementById('board-table').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+let calendarStatusTimer = 0;
+
+function setCalendarStatus(message) {
+  el.calendarStatus.textContent = message;
+  window.clearTimeout(calendarStatusTimer);
+  if (message) {
+    calendarStatusTimer = window.setTimeout(() => { el.calendarStatus.textContent = ''; }, 4000);
+  }
+}
+
+function showMonth(offset) {
+  monthOffset = offset;
+  renderCalendar();
 }
 
 function renderSummary(plan) {
@@ -1941,6 +2069,10 @@ el.clearPlacements.addEventListener('click', () => {
   render();
   setBoardStatus(t('board.clearedPlacements'));
 });
+
+el.prevMonth.addEventListener('click', () => showMonth(monthOffset - 1));
+el.nextMonth.addEventListener('click', () => showMonth(monthOffset + 1));
+el.thisMonth.addEventListener('click', () => showMonth(0));
 
 el.prevWeek.addEventListener('click', () => showWeek(weekOffset - 1));
 el.nextWeek.addEventListener('click', () => showWeek(weekOffset + 1));

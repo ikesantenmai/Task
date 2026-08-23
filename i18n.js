@@ -180,6 +180,19 @@ const I18N = {
     'excel.importSkipped': '{n}件は内容が不正なため読み飛ばしました。',
     'excel.importFailed': '取り込みに失敗しました：{message}',
 
+    'calendar.heading': 'カレンダー',
+    'calendar.prev': '← 前月',
+    'calendar.prevAria': '前の月を表示',
+    'calendar.this': '今月',
+    'calendar.next': '翌月 →',
+    'calendar.nextAria': '次の月を表示',
+    'calendar.note': '日付をクリックすると、その週を上の週間スケジュールに表示します。',
+    'calendar.month': '{y}年{m}月',
+    'calendar.more': '他 {n}件',
+    'calendar.jumped': '{date} の週を週間スケジュールに表示しました。',
+    'calendar.dayAria': '{date} の週を表示（{n}件）',
+    'calendar.today': '今日',
+
     'import.heading': '日単位のExcelを取り込みます',
     'import.message': '{file}（タスク {tasks}件・予定 {events}件）を取り込みます。選んだ日の内容は、ファイルの内容に置き換わります。',
     'import.dayLabel': '取り込む日',
@@ -363,11 +376,30 @@ const I18N = {
     'excel.importSkipped': 'Skipped {n} invalid row(s).',
     'excel.importFailed': 'Import failed: {message}',
 
+    'calendar.heading': 'Calendar',
+    'calendar.prev': '← Prev month',
+    'calendar.prevAria': 'Show the previous month',
+    'calendar.this': 'This month',
+    'calendar.next': 'Next month →',
+    'calendar.nextAria': 'Show the next month',
+    'calendar.note': 'Click a date to show that week in the weekly schedule above.',
+    'calendar.month': '{monthName} {y}',
+    'calendar.more': '+{n} more',
+    'calendar.jumped': 'Showing the week of {date} in the weekly schedule.',
+    'calendar.dayAria': 'Show the week of {date} ({n} item(s))',
+    'calendar.today': 'Today',
+
     'import.heading': 'Import a day file',
     'import.message': 'Importing {file} ({tasks} task(s), {events} event(s)). The selected day will be replaced with the file contents.',
     'import.dayLabel': 'Day to import into',
     'import.confirm': 'Import into this day',
   },
+};
+
+const MONTH_NAMES_BY_LANG = {
+  ja: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
+  en: ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'],
 };
 
 const WEEK_NAMES_BY_LANG = {
