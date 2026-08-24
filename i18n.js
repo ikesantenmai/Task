@@ -73,6 +73,8 @@ const I18N = {
     'schedule.priorityAria': '{name} の優先順位',
     'schedule.durationAria': '{name} の所要時間（分）',
     'schedule.dayAria': '{name} を追加する日',
+    'schedule.timeAria': '{name} を追加する時刻',
+    'schedule.autoTime': '自動',
     'schedule.addAria': '{name} を選んだ日に追加',
     'schedule.placedBadge': '配置済み {date} {time}',
 
@@ -279,6 +281,8 @@ const I18N = {
     'schedule.priorityAria': 'Priority of {name}',
     'schedule.durationAria': 'Duration of {name} in minutes',
     'schedule.dayAria': 'Day to add {name} to',
+    'schedule.timeAria': 'Time to add {name} at',
+    'schedule.autoTime': 'Auto',
     'schedule.addAria': 'Add {name} to the selected day',
     'schedule.placedBadge': 'Placed {date} {time}',
 

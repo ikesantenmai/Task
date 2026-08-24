@@ -395,6 +395,7 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 .cell-select {
   padding: 4px 6px;
   margin-right: 6px;
+  max-width: 120px;
   font: inherit;
   font-size: .8rem;
   color: var(--text);

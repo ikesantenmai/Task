@@ -847,19 +847,47 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   const placedInWeek = task.placedAt &&
     Array.from({ length: WEEK_LENGTH }, (unused, i) => dayKey(i)).includes(task.placedAt.date);
   daySelect.value = placedInWeek ? task.placedAt.date : dayKey(defaultDayIndex());
+
+  /* 時刻は「自動」（自動スケジュールの時刻、埋まっていれば最も早い空き）か、30分刻みの指定 */
+  const timeSelect = document.createElement('select');
+  timeSelect.className = 'cell-select';
+  timeSelect.setAttribute('aria-label', t('schedule.timeAria', { name: task.name }));
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = t('schedule.autoTime');
+  timeSelect.append(auto);
+  for (let start = DAY_START; start < DAY_END; start += SLOT) {
+    const option = document.createElement('option');
+    option.value = String(start);
+    option.textContent = formatTime(start);
+    timeSelect.append(option);
+  }
+  timeSelect.value = placedInWeek ? String(task.placedAt.start) : '';
+
   addCell.append(
     daySelect,
-    makeButton(t('common.add'), () => addTaskToDay(task.id, daySelect.value), t('schedule.addAria', { name: task.name }))
+    timeSelect,
+    makeButton(
+      t('common.add'),
+      () => addTaskToDay(task.id, daySelect.value, timeSelect.value),
+      t('schedule.addAria', { name: task.name })
+    )
   );
 
   row.append(handleCell, makeCell(timeLabel, 'time'), priorityCell, nameCell, durationCell, addCell);
   return row;
 }
 
-/* 選んだ日の空いている時間に、自動スケジュールの時刻を優先して配置する */
-function addTaskToDay(id, date) {
+/* 選んだ日時に配置する。時刻が「自動」のときは、
+ * 自動スケジュールの時刻を優先し、埋まっていればその日の最も早い空き時間に置く。 */
+function addTaskToDay(id, date, time) {
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
+
+  if (time !== '' && time !== undefined && time !== null) {
+    placeItem('task', id, date, Number(time));
+    return;
+  }
 
   const entry = buildSchedule().scheduled.find((item) => item.task.id === id);
   const preferred = entry ? snapToSlot(entry.start) : DAY_START;
