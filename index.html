@@ -44,6 +44,22 @@
         </div>
       </div>
 
+      <div class="field-row">
+        <div class="field">
+          <label for="task-assignee" data-i18n="form.assignee"></label>
+          <input type="text" id="task-assignee" data-i18n-placeholder="form.assigneePlaceholder" maxlength="60">
+        </div>
+        <div class="field">
+          <label for="task-due" data-i18n="form.due"></label>
+          <input type="date" id="task-due">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="task-notes" data-i18n="form.notes"></label>
+        <textarea id="task-notes" rows="3" maxlength="400" data-i18n-placeholder="form.notesPlaceholder"></textarea>
+      </div>
+
       <p class="error" id="form-error" role="alert" hidden></p>
 
       <div class="form-actions">
@@ -176,6 +192,9 @@
             <th scope="col" data-i18n="excel.colName"></th>
             <th scope="col" data-i18n="excel.colPriority"></th>
             <th scope="col" data-i18n="excel.colDuration"></th>
+            <th scope="col" data-i18n="excel.colDue"></th>
+            <th scope="col" data-i18n="excel.colAssignee"></th>
+            <th scope="col" data-i18n="excel.colNotes"></th>
           </tr>
         </thead>
         <tbody id="export-body"></tbody>

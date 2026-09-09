@@ -23,6 +23,9 @@ const el = {
   name: document.getElementById('task-name'),
   priority: document.getElementById('task-priority'),
   duration: document.getElementById('task-duration'),
+  assignee: document.getElementById('task-assignee'),
+  due: document.getElementById('task-due'),
+  notes: document.getElementById('task-notes'),
   error: document.getElementById('form-error'),
   submit: document.getElementById('submit-btn'),
   cancel: document.getElementById('cancel-btn'),
@@ -312,6 +315,9 @@ function load() {
       duration: clamp(Number(t.duration) || 30, 5, MAX_DURATION),
       createdAt: Number(t.createdAt) || i,
       placedAt: normalizePlacement(t.placedAt),
+      assignee: typeof t.assignee === 'string' ? t.assignee : '',
+      due: keyToDate(t.due) ? t.due : '',
+      notes: typeof t.notes === 'string' ? t.notes : '',
     }))
     .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
   loaded.forEach((task, i) => { task.priority = i + 1; });
@@ -682,8 +688,26 @@ function renderList() {
     meta.textContent = t('list.itemMeta', { priority: task.priority, duration: formatDuration(task.duration) });
     body.append(name, meta);
 
+    if (task.assignee || task.due) {
+      const badges = document.createElement('span');
+      badges.className = 'task-badges';
+      if (task.assignee) badges.append(makeSpan(t('task.assignee', { name: task.assignee }), 'badge is-assignee'));
+      const dueBadge = makeDueBadge(task.due);
+      if (dueBadge) badges.append(dueBadge);
+      body.append(badges);
+    }
+
+    if (task.notes) {
+      const notes = makeSpan(task.notes, 'task-notes');
+      notes.title = task.notes;
+      body.append(notes);
+    }
+
     const actions = document.createElement('div');
     actions.className = 'task-actions';
+    if (looksLikeEmail(task.assignee)) {
+      actions.append(makeButton(t('task.request'), () => openRequestMail(task), t('task.requestAria', { name: task.name })));
+    }
     actions.append(
       makeButton(t('common.edit'), () => startEdit(task.id), t('list.editAria', { name: task.name })),
       makeButton(t('common.delete'), () => removeTask(task.id), t('list.deleteAria', { name: task.name }), true)
@@ -824,6 +848,10 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   );
 
   const nameCell = makeCell(task.name);
+  if (task.notes) nameCell.title = task.notes;
+  if (task.assignee) nameCell.append(makeSpan(t('task.assignee', { name: task.assignee }), 'badge is-assignee'));
+  const dueBadge = makeDueBadge(task.due);
+  if (dueBadge) nameCell.append(dueBadge);
   if (task.placedAt !== null) {
     nameCell.append(
       makeSpan(t('schedule.placedBadge', {
@@ -1133,6 +1161,16 @@ function makeBoardCell(item, span) {
     to: formatTime(item.start + item.duration),
   });
   body.append(name, makeSpan(`${timeText}　${detail}`, 'placed-meta'));
+
+  const source = item.kind === 'task' ? tasks.find((task) => task.id === item.id) : null;
+  if (source && (source.assignee || source.due)) {
+    const extra = [
+      source.assignee ? t('task.assignee', { name: source.assignee }) : '',
+      source.due ? t('task.due', { date: labelOfKey(source.due) }) : '',
+    ].filter(Boolean).join('　');
+    body.append(makeSpan(extra, 'placed-meta'));
+  }
+  if (source && source.notes) block.title = source.notes;
 
   const actions = document.createElement('div');
   actions.className = 'placed-actions';
@@ -1498,9 +1536,10 @@ function renderSummary(plan) {
 
 function exportHeader() {
   return ['excel.colKind', 'excel.colDay', 'excel.colDate', 'excel.colStart',
-    'excel.colEnd', 'excel.colName', 'excel.colPriority', 'excel.colDuration'].map((key) => t(key));
+    'excel.colEnd', 'excel.colName', 'excel.colPriority', 'excel.colDuration',
+    'excel.colDue', 'excel.colAssignee', 'excel.colNotes'].map((key) => t(key));
 }
-const EXPORT_WIDTHS = [8, 8, 12, 8, 8, 30, 10, 14];
+const EXPORT_WIDTHS = [8, 8, 12, 8, 8, 30, 10, 14, 12, 16, 40];
 
 function exportRange() {
   const checked = document.querySelector('input[name="export-range"]:checked');
@@ -1526,7 +1565,17 @@ function allDayRows(dates) {
       event.name,
       '',
       '',
+      '',
+      '',
+      '',
     ]);
+}
+
+/* 週間表の項目から、元のタスクの追加情報を取り出す（予定は空欄） */
+function taskFieldOf(item, field) {
+  if (item.kind !== 'task') return '';
+  const task = tasks.find((t) => t.id === item.id);
+  return (task && task[field]) || '';
 }
 
 function exportRows() {
@@ -1549,12 +1598,16 @@ function exportRows() {
     item.name,
     item.priority || '',
     item.duration,
+    taskFieldOf(item, 'due'),
+    taskFieldOf(item, 'assignee'),
+    taskFieldOf(item, 'notes'),
   ]));
 
   tasks
     .filter((task) => task.placedAt === null)
     .forEach((task) => {
-      rows.push([t('excel.kindTask'), '', '', '', '', task.name, task.priority, task.duration]);
+      rows.push([t('excel.kindTask'), '', '', '', '', task.name, task.priority, task.duration,
+        task.due || '', task.assignee || '', task.notes || '']);
     });
 
   return rows;
@@ -1639,6 +1692,9 @@ function parseRows(rows) {
     name: column('name'),
     priority: column('priority'),
     duration: column('duration'),
+    due: column('due'),
+    assignee: column('assignee'),
+    notes: column('notes'),
   };
   if (columns.name < 0 || columns.duration < 0) {
     throw new Error(t('excel.errorColumns'));
@@ -1676,9 +1732,13 @@ function parseRows(rows) {
       return;
     }
 
+    const dueCell = value('due');
     entries.push({
       kind,
       name,
+      due: keyToDate(dueCell) ? dueCell : '',
+      assignee: value('assignee'),
+      notes: value('notes'),
       allDay: isAllDay,
       duration: isAllDay ? 0 : clamp(duration, 5, MAX_DURATION),
       priority: Number(value('priority')) || null,
@@ -1744,6 +1804,9 @@ function applyAllImport(entries) {
         duration: entry.duration,
         createdAt: Date.now() + index,
         placedAt: entry.date === null ? null : { date: entry.date, start: entry.start },
+        assignee: entry.assignee || '',
+        due: entry.due || '',
+        notes: entry.notes || '',
       });
     }
   });
@@ -1800,11 +1863,17 @@ function applyPartialImport(entries, clearDates, resolveDate) {
         duration: entry.duration,
         createdAt: Date.now(),
         placedAt: null,
+        assignee: entry.assignee || '',
+        due: entry.due || '',
+        notes: entry.notes || '',
       };
       tasks.push(task);
       renumber();
     } else {
       task.duration = entry.duration;
+      if (entry.assignee) task.assignee = entry.assignee;
+      if (entry.due) task.due = entry.due;
+      if (entry.notes) task.notes = entry.notes;
     }
     taskCount += 1;
 
@@ -1996,14 +2065,61 @@ function readForm() {
     return null;
   }
 
+  const due = el.due.value.trim();
+  if (due && !keyToDate(due)) {
+    showError(t('form.errorDue'));
+    return null;
+  }
+
   clearError();
-  return { name, priority: clamp(priority, 1, 99), duration: clamp(duration, 5, MAX_DURATION) };
+  return {
+    name,
+    priority: clamp(priority, 1, 99),
+    duration: clamp(duration, 5, MAX_DURATION),
+    assignee: el.assignee.value.trim(),
+    due,
+    notes: el.notes.value.trim(),
+  };
+}
+
+/* 期限のバッジ（過ぎていれば強調） */
+function makeDueBadge(due) {
+  if (!due) return null;
+  const key = todayKey();
+  const state = due < key ? 'overdue' : due === key ? 'dueToday' : 'due';
+  const badge = makeSpan(t(`task.${state}`, { date: labelOfKey(due) }), 'badge is-due');
+  if (state === 'overdue') badge.classList.add('is-overdue');
+  if (state === 'dueToday') badge.classList.add('is-today');
+  return badge;
+}
+
+/* 依頼先がメールアドレスなら、依頼メールの下書きを開ける */
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function openRequestMail(task) {
+  const subject = t('task.mailSubject', { name: task.name });
+  const body = t('task.mailBody', {
+    name: task.name,
+    due: task.due ? labelOfKey(task.due, true) : t('task.none'),
+    duration: formatDuration(task.duration),
+    priority: task.priority,
+    notes: task.notes || t('task.none'),
+  });
+  const url = `mailto:${encodeURIComponent(task.assignee)}` +
+    `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(url, '_blank');
+  setBoardStatus(t('task.mailOpened', { name: task.name }));
 }
 
 function resetForm() {
   editingId = null;
   el.form.reset();
   el.id.value = '';
+  el.assignee.value = '';
+  el.due.value = '';
+  el.notes.value = '';
   el.priority.value = String(tasks.length + 1);
   el.duration.value = '60';
   el.submit.textContent = t('form.add');
@@ -2019,6 +2135,9 @@ function startEdit(id) {
   el.name.value = task.name;
   el.priority.value = String(task.priority);
   el.duration.value = String(task.duration);
+  el.assignee.value = task.assignee || '';
+  el.due.value = task.due || '';
+  el.notes.value = task.notes || '';
   el.submit.textContent = t('form.update');
   el.cancel.hidden = false;
   clearError();
@@ -2073,6 +2192,9 @@ el.form.addEventListener('submit', async (event) => {
     if (!task) return;
     task.name = input.name;
     task.duration = input.duration;
+    task.assignee = input.assignee;
+    task.due = input.due;
+    task.notes = input.notes;
     if (input.priority !== task.priority) {
       const moved = await moveTask(editingId, input.priority);
       if (!moved) {
@@ -2088,6 +2210,9 @@ el.form.addEventListener('submit', async (event) => {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createdAt: Date.now(),
       placedAt: null,
+      assignee: '',
+      due: '',
+      notes: '',
       ...input,
     };
     const inserted = await insertTask(task, input.priority);

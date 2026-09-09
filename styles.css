@@ -583,3 +583,32 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 /* 予定フォームの終日チェック */
 .checkbox-field { flex-direction: row; align-items: center; gap: 6px; font-size: .85rem; font-weight: 600; color: var(--muted); cursor: pointer; }
 .checkbox-field input { width: 16px; height: 16px; }
+
+/* 依頼先・期限・詳細 */
+.task-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.badge.is-assignee { color: var(--text); background: var(--border); }
+.badge.is-due { color: var(--muted); background: var(--bg); border: 1px solid var(--border); }
+.badge.is-due.is-today { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.badge.is-due.is-overdue { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+.task-notes {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin-top: 4px;
+  font-size: .78rem;
+  color: var(--muted);
+  overflow: hidden;
+}
+#task-notes {
+  width: 100%;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+#task-notes:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.preview td { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
