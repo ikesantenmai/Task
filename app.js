@@ -705,8 +705,15 @@ function renderList() {
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
-    if (looksLikeEmail(task.assignee)) {
-      actions.append(makeButton(t('task.request'), () => openRequestMail(task), t('task.requestAria', { name: task.name })));
+    const recipients = extractEmails(task.assignee);
+    if (recipients.length > 0) {
+      const label = recipients.length > 1
+        ? t('task.requestMany', { n: recipients.length })
+        : t('task.request');
+      const button = makeButton(label, () => openRequestMail(task),
+        t('task.requestAria', { name: task.name }));
+      button.title = recipients.join(', ');
+      actions.append(button);
     }
     actions.append(
       makeButton(t('common.edit'), () => startEdit(task.id), t('list.editAria', { name: task.name })),
@@ -2093,12 +2100,20 @@ function makeDueBadge(due) {
   return badge;
 }
 
-/* 依頼先がメールアドレスなら、依頼メールの下書きを開ける */
-function looksLikeEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+/* 依頼先に含まれるメールアドレスを取り出す。
+ * 「山田さん yamada@example.com, 佐藤 sato@example.com」のように、
+ * 名前混じり・カンマ／セミコロン／読点／空白区切りでも複数拾える。 */
+function extractEmails(value) {
+  const found = String(value || '').split(/[,;、，\s]+/)
+    .map((part) => part.replace(/^[<（("']+|[>）)"']+$/g, '').trim())
+    .filter((part) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part));
+  return Array.from(new Set(found));
 }
 
 function openRequestMail(task) {
+  const recipients = extractEmails(task.assignee);
+  if (recipients.length === 0) return;
+
   const subject = t('task.mailSubject', { name: task.name });
   const body = t('task.mailBody', {
     name: task.name,
@@ -2107,10 +2122,10 @@ function openRequestMail(task) {
     priority: task.priority,
     notes: task.notes || t('task.none'),
   });
-  const url = `mailto:${encodeURIComponent(task.assignee)}` +
+  const url = `mailto:${recipients.map(encodeURIComponent).join(',')}` +
     `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.open(url, '_blank');
-  setBoardStatus(t('task.mailOpened', { name: task.name }));
+  setBoardStatus(t('task.mailOpened', { name: task.name, n: recipients.length }));
 }
 
 function resetForm() {

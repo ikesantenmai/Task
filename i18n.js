@@ -43,7 +43,7 @@ const I18N = {
     'form.errorDurationMax': '所要時間は1日の枠（{max}）以内で入力してください。',
 
     'form.assignee': '依頼先',
-    'form.assigneePlaceholder': '例：山田さん / yamada@example.com',
+    'form.assigneePlaceholder': '例：yamada@example.com, sato@example.com',
     'form.due': '期限',
     'form.notes': '詳細',
     'form.notesPlaceholder': '作業の内容やメモ（任意）',
@@ -54,10 +54,11 @@ const I18N = {
     'task.overdue': '期限切れ {date}',
     'task.dueToday': '本日期限 {date}',
     'task.request': '依頼メール',
+    'task.requestMany': '依頼メール（{n}人）',
     'task.requestAria': '{name} の依頼メールを作成',
     'task.mailSubject': '【依頼】{name}',
     'task.mailBody': '{name} をお願いできますでしょうか。\n\n期限：{due}\n所要時間：{duration}\n優先順位：{priority}\n\n詳細：\n{notes}\n',
-    'task.mailOpened': '{name} の依頼メールを作成しました（メールソフトが開きます）。',
+    'task.mailOpened': '{name} の依頼メールを作成しました（宛先 {n}人・メールソフトが開きます）。',
     'task.none': '（未設定）',
 
     'list.heading': 'タスク一覧',
@@ -272,7 +273,7 @@ const I18N = {
     'form.errorDurationMax': 'Duration must fit within one day ({max}).',
 
     'form.assignee': 'Assignee',
-    'form.assigneePlaceholder': 'e.g. Alex / alex@example.com',
+    'form.assigneePlaceholder': 'e.g. alex@example.com, sam@example.com',
     'form.due': 'Due date',
     'form.notes': 'Details',
     'form.notesPlaceholder': 'What the work involves (optional)',
@@ -283,10 +284,11 @@ const I18N = {
     'task.overdue': 'Overdue {date}',
     'task.dueToday': 'Due today {date}',
     'task.request': 'Email request',
+    'task.requestMany': 'Email request ({n})',
     'task.requestAria': 'Draft a request email for {name}',
     'task.mailSubject': 'Task request: {name}',
     'task.mailBody': 'Could you take on “{name}”?\n\nDue: {due}\nDuration: {duration}\nPriority: {priority}\n\nDetails:\n{notes}\n',
-    'task.mailOpened': 'Opened a request email for {name} in your mail app.',
+    'task.mailOpened': 'Opened a request email for {name} to {n} recipient(s) in your mail app.',
     'task.none': '(not set)',
 
     'list.heading': 'Task list',

@@ -612,3 +612,12 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 }
 #task-notes:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .preview td { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+
+/* 依頼先が長いときは省略表示にして、ボタンに重ならないようにする */
+.badge.is-assignee {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-badges { max-width: 100%; }
+.schedule .badge.is-assignee { max-width: 220px; vertical-align: bottom; }
