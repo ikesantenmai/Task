@@ -46,7 +46,7 @@ const I18N = {
     'form.assigneePlaceholder': '例：yamada@example.com, sato@example.com',
     'form.due': '期限',
     'form.notes': '詳細',
-    'form.notesPlaceholder': '作業の内容やメモ（任意）',
+    'form.notesPlaceholder': '作業の内容やメモ（任意）。URL を書くとリンクになります',
     'form.errorDue': '期限は日付として正しい形式で入力してください。',
 
     'task.assignee': '依頼先 {name}',
@@ -60,6 +60,9 @@ const I18N = {
     'task.mailBody': '{name} をお願いできますでしょうか。\n\n期限：{due}\n所要時間：{duration}\n優先順位：{priority}\n\n詳細：\n{notes}\n',
     'task.mailOpened': '{name} の依頼メールを作成しました（宛先 {n}人・メールソフトが開きます）。',
     'task.none': '（未設定）',
+    'task.notesMore': '全文表示',
+    'task.notesLess': '折りたたむ',
+    'task.linkAria': '{url} を新しいタブで開く',
 
     'list.heading': 'タスク一覧',
     'list.clearPlanning': '週間表を残してクリア',
@@ -276,7 +279,7 @@ const I18N = {
     'form.assigneePlaceholder': 'e.g. alex@example.com, sam@example.com',
     'form.due': 'Due date',
     'form.notes': 'Details',
-    'form.notesPlaceholder': 'What the work involves (optional)',
+    'form.notesPlaceholder': 'What the work involves (optional). URLs become links',
     'form.errorDue': 'Enter the due date as a valid date.',
 
     'task.assignee': 'To {name}',
@@ -290,6 +293,9 @@ const I18N = {
     'task.mailBody': 'Could you take on “{name}”?\n\nDue: {due}\nDuration: {duration}\nPriority: {priority}\n\nDetails:\n{notes}\n',
     'task.mailOpened': 'Opened a request email for {name} to {n} recipient(s) in your mail app.',
     'task.none': '(not set)',
+    'task.notesMore': 'Show all',
+    'task.notesLess': 'Show less',
+    'task.linkAria': 'Open {url} in a new tab',
 
     'list.heading': 'Task list',
     'list.clearPlanning': 'Clear list, keep week',

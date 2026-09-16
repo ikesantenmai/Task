@@ -697,11 +697,7 @@ function renderList() {
       body.append(badges);
     }
 
-    if (task.notes) {
-      const notes = makeSpan(task.notes, 'task-notes');
-      notes.title = task.notes;
-      body.append(notes);
-    }
+    if (task.notes) body.append(makeNotes(task.notes));
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
@@ -2098,6 +2094,64 @@ function makeDueBadge(due) {
   if (state === 'overdue') badge.classList.add('is-overdue');
   if (state === 'dueToday') badge.classList.add('is-today');
   return badge;
+}
+
+/* 詳細の中の URL をリンクにして並べる（innerHTML は使わない） */
+function linkify(text, container) {
+  const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+  const source = String(text || '');
+  let last = 0;
+  let match = pattern.exec(source);
+
+  while (match !== null) {
+    /* 文末の句読点やカッコは URL に含めない */
+    const url = match[0].replace(/[.,;:!?。、）)\]】>」』]+$/u, '');
+    if (match.index > last) {
+      container.append(document.createTextNode(source.slice(last, match.index)));
+    }
+
+    const link = document.createElement('a');
+    link.className = 'task-link';
+    link.href = /^www\./i.test(url) ? `https://${url}` : url;
+    link.textContent = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.setAttribute('aria-label', t('task.linkAria', { url }));
+    link.addEventListener('click', (event) => event.stopPropagation());
+    container.append(link);
+
+    last = match.index + url.length;
+    pattern.lastIndex = last;
+    match = pattern.exec(source);
+  }
+
+  if (last < source.length) container.append(document.createTextNode(source.slice(last)));
+  return container;
+}
+
+/* 詳細の表示。長いときは折りたたみ、「全文表示」で開く */
+function makeNotes(text) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'task-notes-wrap';
+
+  const notes = document.createElement('p');
+  notes.className = 'task-notes is-clamped';
+  linkify(text, notes);
+  wrapper.append(notes);
+
+  if (text.length > 60 || text.includes('\n')) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'notes-toggle';
+    toggle.textContent = t('task.notesMore');
+    toggle.addEventListener('click', () => {
+      const clamped = notes.classList.toggle('is-clamped');
+      toggle.textContent = t(clamped ? 'task.notesMore' : 'task.notesLess');
+    });
+    wrapper.append(toggle);
+  }
+
+  return wrapper;
 }
 
 /* 依頼先に含まれるメールアドレスを取り出す。
