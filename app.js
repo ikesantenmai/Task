@@ -26,6 +26,13 @@ const el = {
   assignee: document.getElementById('task-assignee'),
   due: document.getElementById('task-due'),
   notes: document.getElementById('task-notes'),
+  insertLink: document.getElementById('insert-link-btn'),
+  linkDialog: document.getElementById('link-dialog'),
+  linkText: document.getElementById('link-text'),
+  linkUrl: document.getElementById('link-url'),
+  linkError: document.getElementById('link-error'),
+  linkInsert: document.getElementById('link-insert'),
+  linkCancel: document.getElementById('link-cancel'),
   error: document.getElementById('form-error'),
   submit: document.getElementById('submit-btn'),
   cancel: document.getElementById('cancel-btn'),
@@ -2096,8 +2103,52 @@ function makeDueBadge(due) {
   return badge;
 }
 
-/* 詳細の中の URL をリンクにして並べる（innerHTML は使わない） */
+/* リンクとして許可するのは http(s) と mailto だけ */
+function safeHref(url) {
+  const value = String(url || '').trim();
+  if (/^(https?:\/\/|mailto:)/i.test(value)) return value;
+  if (/^www\./i.test(value)) return `https://${value}`;
+  return null;
+}
+
+function makeLink(url, label) {
+  const href = safeHref(url);
+  if (!href) return document.createTextNode(label || url);
+
+  const link = document.createElement('a');
+  link.className = 'task-link';
+  link.href = href;
+  link.textContent = label || url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.title = href;
+  link.setAttribute('aria-label', t('task.linkAria', { url: href }));
+  link.addEventListener('click', (event) => event.stopPropagation());
+  return link;
+}
+
+/* 詳細の中の [表示テキスト](URL) と、素の URL をリンクにする（innerHTML は使わない） */
+const MD_LINK_PATTERN = /\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|www\.)[^\s)]+)\)/g;
+
 function linkify(text, container) {
+  const source = String(text || '');
+  let last = 0;
+  MD_LINK_PATTERN.lastIndex = 0;
+  let match = MD_LINK_PATTERN.exec(source);
+
+  while (match !== null) {
+    if (match.index > last) linkifyPlain(source.slice(last, match.index), container);
+    container.append(makeLink(match[2], match[1]));
+    last = match.index + match[0].length;
+    match = MD_LINK_PATTERN.exec(source);
+  }
+
+  if (last < source.length) linkifyPlain(source.slice(last), container);
+  return container;
+}
+
+/* 素の URL だけをリンクにする */
+function linkifyPlain(text, container) {
   const pattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
   const source = String(text || '');
   let last = 0;
@@ -2110,15 +2161,7 @@ function linkify(text, container) {
       container.append(document.createTextNode(source.slice(last, match.index)));
     }
 
-    const link = document.createElement('a');
-    link.className = 'task-link';
-    link.href = /^www\./i.test(url) ? `https://${url}` : url;
-    link.textContent = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.setAttribute('aria-label', t('task.linkAria', { url }));
-    link.addEventListener('click', (event) => event.stopPropagation());
-    container.append(link);
+    container.append(makeLink(url, url));
 
     last = match.index + url.length;
     pattern.lastIndex = last;
@@ -2152,6 +2195,83 @@ function makeNotes(text) {
   }
 
   return wrapper;
+}
+
+/* ---------- 詳細へのリンク挿入 ---------- */
+
+/* カーソル位置に文字列を差し込む */
+function insertAtCursor(field, text) {
+  const start = field.selectionStart === null ? field.value.length : field.selectionStart;
+  const end = field.selectionEnd === null ? start : field.selectionEnd;
+  field.value = field.value.slice(0, start) + text + field.value.slice(end);
+  const caret = start + text.length;
+  field.setSelectionRange(caret, caret);
+  field.focus();
+}
+
+/* 「リンクを挿入」ダイアログ */
+function openLinkDialog() {
+  const selected = el.notes.value.slice(el.notes.selectionStart || 0, el.notes.selectionEnd || 0).trim();
+  el.linkText.value = selected;
+  el.linkUrl.value = '';
+  el.linkError.hidden = true;
+
+  if (typeof el.linkDialog.showModal === 'function') {
+    el.linkDialog.showModal();
+  } else {
+    el.linkDialog.setAttribute('open', '');
+  }
+  (selected ? el.linkUrl : el.linkText).focus();
+}
+
+function confirmLinkDialog() {
+  const url = safeHref(el.linkUrl.value.trim());
+  if (!url) {
+    el.linkError.textContent = t('link.errorUrl');
+    el.linkError.hidden = false;
+    el.linkUrl.focus();
+    return;
+  }
+
+  const label = el.linkText.value.trim();
+  el.linkDialog.close();
+  insertAtCursor(el.notes, label ? `[${label}](${url})` : url);
+  setBoardStatus(t('link.inserted'));
+}
+
+/* Webページや文書からの貼り付け：<a href> を [表示テキスト](URL) に変換する */
+function handleNotesPaste(event) {
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+
+  const html = clipboard.getData('text/html');
+  if (!html || !/<a\s/i.test(html)) return;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  let converted = 0;
+  Array.from(doc.querySelectorAll('a[href]')).forEach((anchor) => {
+    const href = safeHref(anchor.getAttribute('href'));
+    const label = anchor.textContent.replace(/\s+/g, ' ').trim();
+    if (!href) {
+      anchor.replaceWith(doc.createTextNode(label));
+      return;
+    }
+    converted += 1;
+    const markdown = !label || label === href ? href : `[${label}](${href})`;
+    anchor.replaceWith(doc.createTextNode(markdown));
+  });
+
+  if (converted === 0) return;
+
+  const text = (doc.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+  if (!text) return;
+
+  event.preventDefault();
+  insertAtCursor(el.notes, text);
+  setBoardStatus(t('link.pasted', { n: converted }));
 }
 
 /* 依頼先に含まれるメールアドレスを取り出す。
@@ -2453,6 +2573,17 @@ el.eventForm.addEventListener('submit', (submitEvent) => {
     time: allDay ? t('board.allDay') : formatTime(start),
   }));
 });
+
+el.insertLink.addEventListener('click', openLinkDialog);
+el.linkInsert.addEventListener('click', confirmLinkDialog);
+el.linkCancel.addEventListener('click', () => el.linkDialog.close());
+el.linkUrl.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    confirmLinkDialog();
+  }
+});
+el.notes.addEventListener('paste', handleNotesPaste);
 
 el.eventAllDay.addEventListener('change', syncAllDayFields);
 

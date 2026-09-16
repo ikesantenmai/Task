@@ -641,3 +641,8 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 }
 .task-badges { max-width: 100%; }
 .schedule .badge.is-assignee { max-width: 220px; vertical-align: bottom; }
+
+/* 詳細のリンク挿入 */
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hint-text { margin: 4px 0 0; font-size: .72rem; line-height: 1.5; color: var(--muted); }
+.conflict .error { margin: 8px 0 0; }

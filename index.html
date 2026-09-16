@@ -56,8 +56,12 @@
       </div>
 
       <div class="field">
-        <label for="task-notes" data-i18n="form.notes"></label>
-        <textarea id="task-notes" rows="3" maxlength="400" data-i18n-placeholder="form.notesPlaceholder"></textarea>
+        <div class="field-head">
+          <label for="task-notes" data-i18n="form.notes"></label>
+          <button type="button" class="btn ghost btn-small" id="insert-link-btn" data-i18n="form.insertLink"></button>
+        </div>
+        <textarea id="task-notes" rows="3" maxlength="600" data-i18n-placeholder="form.notesPlaceholder"></textarea>
+        <p class="hint-text" data-i18n="form.notesHint"></p>
       </div>
 
       <p class="error" id="form-error" role="alert" hidden></p>
@@ -235,6 +239,24 @@
   <div class="conflict-foot">
     <button type="button" class="btn ghost" id="import-cancel" data-i18n="common.cancel"></button>
     <button type="button" class="btn primary" id="import-confirm" data-i18n="import.confirm"></button>
+  </div>
+</dialog>
+
+<!-- 詳細にハイパーリンクを挿入するダイアログ -->
+<dialog id="link-dialog" class="conflict" aria-labelledby="link-heading">
+  <h2 id="link-heading" data-i18n="link.heading"></h2>
+  <div class="field">
+    <label for="link-text" data-i18n="link.text"></label>
+    <input type="text" id="link-text" maxlength="80">
+  </div>
+  <div class="field">
+    <label for="link-url" data-i18n="link.url"></label>
+    <input type="url" id="link-url" placeholder="https://" maxlength="300">
+  </div>
+  <p class="error" id="link-error" role="alert" hidden></p>
+  <div class="conflict-foot">
+    <button type="button" class="btn ghost" id="link-cancel" data-i18n="common.cancel"></button>
+    <button type="button" class="btn primary" id="link-insert" data-i18n="link.insert"></button>
   </div>
 </dialog>
 
