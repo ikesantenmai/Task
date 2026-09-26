@@ -2274,6 +2274,55 @@ function handleNotesPaste(event) {
   setBoardStatus(t('link.pasted', { n: converted }));
 }
 
+/* Outlook等からの貼り付け：表示名だけの mailto リンクからも実際のメールアドレスを拾う。
+ * （例：署名や連絡先一覧で「山田太郎」という文字列に mailto:yamada@example.com が
+ * リンクされている場合、そのままでは名前しか貼り付けられないため） */
+function handleAssigneePaste(event) {
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+
+  const html = clipboard.getData('text/html');
+  if (!html || !/<a\s/i.test(html)) return;
+
+  /* textContent はブロック要素の境界を改行にしないため、Outlook の宛先一覧のように
+   * 1件ずつ <div>/<p> や <br> で区切られている場合に備え、先に改行へ置き換えておく */
+  const normalized = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|tr|li|h[1-6])>/gi, '\n');
+
+  const doc = new DOMParser().parseFromString(normalized, 'text/html');
+  let converted = 0;
+  Array.from(doc.querySelectorAll('a[href]')).forEach((anchor) => {
+    const href = (anchor.getAttribute('href') || '').trim();
+    const match = /^mailto:([^?]+)/i.exec(href);
+    if (!match) return;
+    let address = match[1];
+    try {
+      address = decodeURIComponent(address);
+    } catch (err) {
+      /* 不正なエンコードはそのまま使う */
+    }
+    converted += 1;
+    anchor.replaceWith(doc.createTextNode(address));
+  });
+
+  if (converted === 0) return;
+
+  const text = (doc.body.textContent || '')
+    .replace(/ /g, ' ')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return;
+
+  event.preventDefault();
+  insertAtCursor(el.assignee, text);
+  setBoardStatus(t('assignee.pasted', { n: converted }));
+}
+
 /* 依頼先に含まれるメールアドレスを取り出す。
  * 「山田さん yamada@example.com, 佐藤 sato@example.com」のように、
  * 名前混じり・カンマ／セミコロン／読点／空白区切りでも複数拾える。 */
@@ -2584,6 +2633,7 @@ el.linkUrl.addEventListener('keydown', (event) => {
   }
 });
 el.notes.addEventListener('paste', handleNotesPaste);
+el.assignee.addEventListener('paste', handleAssigneePaste);
 
 el.eventAllDay.addEventListener('change', syncAllDayFields);
 

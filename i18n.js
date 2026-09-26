@@ -56,6 +56,7 @@ const I18N = {
     'link.errorUrl': 'URL は http:// または https:// で始まる形式で入力してください。',
     'link.inserted': 'リンクを挿入しました。',
     'link.pasted': '貼り付けたリンクを {n}件 変換しました。',
+    'assignee.pasted': '貼り付けた宛先から、メールアドレスを {n}件 取り込みました。',
     'form.errorDue': '期限は日付として正しい形式で入力してください。',
 
     'task.assignee': '依頼先 {name}',
@@ -298,6 +299,7 @@ const I18N = {
     'link.errorUrl': 'Enter a URL starting with http:// or https://.',
     'link.inserted': 'Link inserted.',
     'link.pasted': 'Converted {n} pasted link(s).',
+    'assignee.pasted': 'Picked up {n} email address(es) from the pasted contact(s).',
     'form.errorDue': 'Enter the due date as a valid date.',
 
     'task.assignee': 'To {name}',
