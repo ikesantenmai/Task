@@ -2274,9 +2274,9 @@ function handleNotesPaste(event) {
   setBoardStatus(t('link.pasted', { n: converted }));
 }
 
-/* Outlook等からの貼り付け：表示名だけの mailto リンクからも実際のメールアドレスを拾う。
- * （例：署名や連絡先一覧で「山田太郎」という文字列に mailto:yamada@example.com が
- * リンクされている場合、そのままでは名前しか貼り付けられないため） */
+/* Outlook等からの貼り付け：mailto リンクの表示名とメールアドレスの両方を拾い、
+ * 「表示名 <メールアドレス>」の形にして残す（表示名だけのリンクでも実際の
+ * アドレスを取りこぼさない。表示名がアドレスと同じ／無い場合はアドレスのみ）。 */
 function handleAssigneePaste(event) {
   const clipboard = event.clipboardData;
   if (!clipboard) return;
@@ -2302,8 +2302,10 @@ function handleAssigneePaste(event) {
     } catch (err) {
       /* 不正なエンコードはそのまま使う */
     }
+    const label = anchor.textContent.replace(/\s+/g, ' ').trim();
     converted += 1;
-    anchor.replaceWith(doc.createTextNode(address));
+    const replacement = !label || label === address ? address : `${label} <${address}>`;
+    anchor.replaceWith(doc.createTextNode(replacement));
   });
 
   if (converted === 0) return;
