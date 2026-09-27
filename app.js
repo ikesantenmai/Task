@@ -708,7 +708,7 @@ function renderList() {
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
-    const recipients = extractEmails(task.assignee);
+    const recipients = extractRecipients(task.assignee);
     if (recipients.length > 0) {
       const label = recipients.length > 1
         ? t('task.requestMany', { n: recipients.length })
@@ -2325,18 +2325,59 @@ function handleAssigneePaste(event) {
   setBoardStatus(t('assignee.pasted', { n: converted }));
 }
 
-/* 依頼先に含まれるメールアドレスを取り出す。
- * 「山田さん yamada@example.com, 佐藤 sato@example.com」のように、
- * 名前混じり・カンマ／セミコロン／読点／空白区切りでも複数拾える。 */
-function extractEmails(value) {
-  const found = String(value || '').split(/[,;、，\s]+/)
+/* 依頼先に含まれる宛先を取り出す。
+ * 「山田太郎 <yamada@example.com>」のように山括弧でメールアドレスを囲んだ形は、
+ * 表示名を残したまま宛先として使う（依頼メールの宛先にも表示名が入る）。
+ * 「山田さん yamada@example.com」のように山括弧が無い書き方は、名前とアドレスの
+ * 対応が一意に決まらないためアドレスだけを使う。
+ * カンマ／セミコロン／読点／空白区切りが混在していても複数拾え、
+ * 同じアドレスが重複していれば1つにまとめる（表示名付きの表記を優先する）。 */
+function extractRecipients(value) {
+  const source = String(value || '');
+  const recipients = [];
+  const seen = new Set();
+  const consumed = [];
+
+  const bracketPattern = /([^,;、，<>]*)<\s*([^<>]+?)\s*>/g;
+  let match = bracketPattern.exec(source);
+  while (match !== null) {
+    const email = match[2].trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      const name = match[1].trim();
+      const key = email.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        recipients.push(name ? `${name} <${email}>` : email);
+      }
+      consumed.push([match.index, bracketPattern.lastIndex]);
+    }
+    match = bracketPattern.exec(source);
+  }
+
+  let remainder = '';
+  let last = 0;
+  consumed.forEach(([start, end]) => {
+    remainder += source.slice(last, start);
+    last = end;
+  });
+  remainder += source.slice(last);
+
+  remainder.split(/[,;、，\s]+/)
     .map((part) => part.replace(/^[<（("']+|[>）)"']+$/g, '').trim())
-    .filter((part) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part));
-  return Array.from(new Set(found));
+    .filter((part) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part))
+    .forEach((email) => {
+      const key = email.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        recipients.push(email);
+      }
+    });
+
+  return recipients;
 }
 
 function openRequestMail(task) {
-  const recipients = extractEmails(task.assignee);
+  const recipients = extractRecipients(task.assignee);
   if (recipients.length === 0) return;
 
   const subject = t('task.mailSubject', { name: task.name });
