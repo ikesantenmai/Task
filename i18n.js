@@ -39,7 +39,7 @@ const I18N = {
     'form.update': '更新する',
     'form.errorName': 'タスク名を入力してください。',
     'form.errorPriority': '優先順位は1以上の数値で入力してください。',
-    'form.errorDurationMin': '所要時間は5分以上で入力してください。',
+    'form.errorDurationMin': '所要時間は15分以上で入力してください。',
     'form.errorDurationMax': '所要時間は1日の枠（{max}）以内で入力してください。',
 
     'form.assignee': '依頼先',
@@ -164,7 +164,7 @@ const I18N = {
     'event.editAria': '予定 {name} を編集',
     'event.deleteAria': '予定 {name} を削除',
     'event.errorName': '予定名を入力してください。',
-    'event.errorDuration': '所要時間は5分〜{max}の範囲で入力してください。',
+    'event.errorDuration': '所要時間は15分〜{max}の範囲で入力してください。',
     'event.editCanceled': '予定の編集をキャンセルしました。',
 
     'conflict.heading': '優先順位が重複しています',
@@ -281,7 +281,7 @@ const I18N = {
     'form.update': 'Update task',
     'form.errorName': 'Enter a task name.',
     'form.errorPriority': 'Priority must be a number of 1 or more.',
-    'form.errorDurationMin': 'Duration must be at least 5 minutes.',
+    'form.errorDurationMin': 'Duration must be at least 15 minutes.',
     'form.errorDurationMax': 'Duration must fit within one day ({max}).',
 
     'form.assignee': 'Assignee',
@@ -406,7 +406,7 @@ const I18N = {
     'event.editAria': 'Edit the event {name}',
     'event.deleteAria': 'Delete the event {name}',
     'event.errorName': 'Enter an event name.',
-    'event.errorDuration': 'Duration must be between 5 minutes and {max}.',
+    'event.errorDuration': 'Duration must be between 15 minutes and {max}.',
     'event.editCanceled': 'Canceled editing the event.',
 
     'conflict.heading': 'That priority is already taken',
