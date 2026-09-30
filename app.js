@@ -7,7 +7,7 @@
 const DAY_START = 7 * 60;   // 7:00 を分に換算
 const DAY_END = 22 * 60;    // 22:00
 const MAX_DURATION = DAY_END - DAY_START;
-const SLOT = 30;            // 週間スケジュールの1コマ（分）
+const SLOT = 15;            // 週間スケジュールの1コマ（分）
 const WEEK_LENGTH = 7;
 const HUES = [214, 268, 340, 24, 152, 190, 44, 300];
 
@@ -319,7 +319,7 @@ function load() {
       id: String(t.id || `${Date.now()}-${i}`),
       name: t.name,
       priority: clamp(Number(t.priority) || 1, 1, 99),
-      duration: clamp(Number(t.duration) || 30, 5, MAX_DURATION),
+      duration: clamp(Number(t.duration) || 30, SLOT, MAX_DURATION),
       createdAt: Number(t.createdAt) || i,
       placedAt: normalizePlacement(t.placedAt),
       assignee: typeof t.assignee === 'string' ? t.assignee : '',
@@ -341,7 +341,7 @@ function loadEvents() {
       date: keyToDate(e.date) ? e.date : keyFromWeekday(e.day),
       allDay: Boolean(e.allDay),
       start: e.allDay ? null : snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
-      duration: e.allDay ? 0 : clamp(Number(e.duration) || 30, 5, MAX_DURATION),
+      duration: e.allDay ? 0 : clamp(Number(e.duration) || 30, SLOT, MAX_DURATION),
       priority: Number(e.priority) > 0 ? clamp(Number(e.priority), 1, 99) : null,
     }));
 }
@@ -846,9 +846,9 @@ function makeTaskRow(task, timeLabel, unscheduled) {
   durationCell.append(
     makeNumberInput({
       value: task.duration,
-      min: 5,
+      min: SLOT,
       max: MAX_DURATION,
-      step: 5,
+      step: SLOT,
       field: 'duration',
       taskId: task.id,
       label: t('schedule.durationAria', { name: task.name }),
@@ -1720,7 +1720,7 @@ function parseRows(rows) {
 
     const isAllDay = XLSX_ALIASES.allDay.includes(value('start'));
     const duration = Number(value('duration'));
-    if (!isAllDay && (!Number.isFinite(duration) || duration < 5)) {
+    if (!isAllDay && (!Number.isFinite(duration) || duration < SLOT)) {
       skipped += 1;
       return;
     }
@@ -1750,7 +1750,7 @@ function parseRows(rows) {
       assignee: value('assignee'),
       notes: value('notes'),
       allDay: isAllDay,
-      duration: isAllDay ? 0 : clamp(duration, 5, MAX_DURATION),
+      duration: isAllDay ? 0 : clamp(duration, SLOT, MAX_DURATION),
       priority: Number(value('priority')) || null,
       date: placed ? date : null,
       start: isAllDay ? null : (placed ? start : null),
@@ -2066,7 +2066,7 @@ function readForm() {
     showError(t('form.errorPriority'));
     return null;
   }
-  if (!Number.isFinite(duration) || duration < 5) {
+  if (!Number.isFinite(duration) || duration < SLOT) {
     showError(t('form.errorDurationMin'));
     return null;
   }
@@ -2085,7 +2085,7 @@ function readForm() {
   return {
     name,
     priority: clamp(priority, 1, 99),
-    duration: clamp(duration, 5, MAX_DURATION),
+    duration: clamp(duration, SLOT, MAX_DURATION),
     assignee: el.assignee.value.trim(),
     due,
     notes: el.notes.value.trim(),
@@ -2357,7 +2357,7 @@ async function changePriority(id, value) {
 function changeDuration(id, value) {
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
-  task.duration = clamp(value, 5, MAX_DURATION);
+  task.duration = clamp(value, SLOT, MAX_DURATION);
   save();
   render();
   focusCell(id, 'duration');
