@@ -346,6 +346,7 @@ function loadEvents() {
       start: e.allDay ? null : snapToSlot(clamp(Number(e.start), DAY_START, DAY_END - SLOT)),
       duration: e.allDay ? 0 : clamp(Number(e.duration) || 30, SLOT, MAX_DURATION),
       priority: Number(e.priority) > 0 ? clamp(Number(e.priority), 1, 99) : null,
+      done: Boolean(e.done),
     }));
 }
 
@@ -424,6 +425,7 @@ function allBoardItems() {
     start: event.start,
     duration: event.duration,
     priority: event.priority || null,
+    done: Boolean(event.done),
   }));
   return placedTasks.concat(eventItems);
 }
@@ -1114,7 +1116,7 @@ function makeAllDayRow() {
 
 function makeAllDayChip(event) {
   const chip = document.createElement('div');
-  chip.className = 'allday-chip';
+  chip.className = 'allday-chip' + (event.done ? ' is-done' : '');
   chip.dataset.itemId = event.id;
 
   chip.append(makeDragHandle('event', event.id, event.name, chip));
@@ -1134,6 +1136,7 @@ function makeAllDayChip(event) {
   remove.setAttribute('aria-label', t('event.deleteAria', { name: event.name }));
   remove.addEventListener('click', () => removeEvent(event.id));
   chip.append(remove);
+  chip.append(makeDoneCheckbox('event', event));
 
   return chip;
 }
@@ -1155,23 +1158,23 @@ function syncAllDayFields() {
   el.eventDuration.disabled = allDay;
 }
 
-function makeDoneCheckbox(item) {
+function makeDoneCheckbox(kind, item) {
   const label = document.createElement('label');
   label.className = 'done-check';
   const box = document.createElement('input');
   box.type = 'checkbox';
   box.checked = Boolean(item.done);
   box.setAttribute('aria-label', t('board.doneAria', { name: item.name }));
-  box.addEventListener('change', () => setTaskDone(item.id, box.checked));
+  box.addEventListener('change', () => setItemDone(kind, item.id, box.checked));
   label.append(box);
   return label;
 }
 
-function setTaskDone(id, done) {
-  const task = tasks.find((x) => x.id === id);
-  if (!task) return;
-  task.done = done;
-  save();
+function setItemDone(kind, id, done) {
+  const target = (kind === 'task' ? tasks : events).find((x) => x.id === id);
+  if (!target) return;
+  target.done = done;
+  if (kind === 'task') save(); else saveEvents();
   render();
 }
 
@@ -1179,18 +1182,21 @@ function renderDoneList() {
   el.doneList.textContent = '';
   const done = tasks
     .filter((task) => task.done && task.placedAt !== null)
-    .sort((a, b) => (a.placedAt.date < b.placedAt.date ? -1
-      : a.placedAt.date > b.placedAt.date ? 1 : a.placedAt.start - b.placedAt.start));
+    .map((task) => ({ name: task.name, date: task.placedAt.date, start: task.placedAt.start, duration: task.duration }))
+    .concat(events.filter((event) => event.done).map((event) => ({
+      name: event.name, date: event.date, start: event.allDay ? null : event.start, duration: event.duration,
+    })))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.start ?? -1) - (b.start ?? -1)));
   el.doneEmpty.hidden = done.length > 0;
-  done.forEach((task) => {
+  done.forEach((entry) => {
     const item = document.createElement('li');
     item.className = 'done-item';
+    const when = entry.start === null
+      ? t('board.allDay')
+      : t('time.range', { from: formatTime(entry.start), to: formatTime(entry.start + entry.duration) });
     item.append(
-      makeSpan(task.name, 'done-name'),
-      makeSpan(`${labelOfKey(task.placedAt.date)} ${t('time.range', {
-        from: formatTime(task.placedAt.start),
-        to: formatTime(task.placedAt.start + task.duration),
-      })}`, 'placed-meta')
+      makeSpan(entry.name, 'done-name'),
+      makeSpan(`${labelOfKey(entry.date)} ${when}`, 'placed-meta')
     );
     el.doneList.append(item);
   });
@@ -1241,7 +1247,7 @@ function makeBoardCell(item, span) {
   }
 
   block.append(makeDragHandle(item.kind, item.id, item.name, block), body, actions);
-  if (item.kind === 'task') block.append(makeDoneCheckbox(item));
+  block.append(makeDoneCheckbox(item.kind, item));
   cell.append(block);
   return cell;
 }

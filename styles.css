@@ -547,6 +547,10 @@ body.is-dragging { cursor: grabbing; user-select: none; }
   border-left: 3px solid var(--accent);
   border-radius: 6px;
 }
+.allday-chip.is-done { background: var(--ok-soft, #e3f5e8); border-color: var(--ok, #2e9e5b); }
+.allday-chip.is-done .allday-name { text-decoration: line-through; opacity: .75; }
+.allday-chip .done-check { position: static; }
+.allday-chip .done-check input { width: 14px; height: 14px; }
 .allday-chip.dragging { opacity: .45; }
 .allday-chip .drag-handle { padding: 0 2px; font-size: .8rem; }
 .allday-name {
