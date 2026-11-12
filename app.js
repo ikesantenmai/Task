@@ -46,6 +46,8 @@ const el = {
   boardHead: document.getElementById('board-head'),
   board: document.getElementById('board-body'),
   boardStatus: document.getElementById('board-status'),
+  doneList: document.getElementById('done-list'),
+  doneEmpty: document.getElementById('done-empty'),
   clearPlacements: document.getElementById('clear-placements'),
   lead: document.getElementById('lead'),
   scheduleHeading: document.getElementById('schedule-heading'),
@@ -325,6 +327,7 @@ function load() {
       assignee: typeof t.assignee === 'string' ? t.assignee : '',
       due: keyToDate(t.due) ? t.due : '',
       notes: typeof t.notes === 'string' ? t.notes : '',
+      done: Boolean(t.done),
     }))
     .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt);
   loaded.forEach((task, i) => { task.priority = i + 1; });
@@ -411,6 +414,7 @@ function allBoardItems() {
       start: task.placedAt.start,
       duration: task.duration,
       priority: task.priority,
+      done: Boolean(task.done),
     }));
   const eventItems = events.filter((event) => !event.allDay).map((event) => ({
     kind: 'event',
@@ -511,6 +515,7 @@ function unplaceTask(id) {
   const task = tasks.find((t) => t.id === id);
   if (!task || task.placedAt === null) return;
   task.placedAt = null;
+  task.done = false;
   save();
   render();
   setBoardStatus(t('board.unplaced', { name: task.name }));
@@ -661,6 +666,7 @@ function render() {
   renderTimeline(plan);
   renderTable(plan);
   renderBoard();
+  renderDoneList();
   renderCalendar();
   renderSummary(plan);
   renderExport();
@@ -1149,6 +1155,47 @@ function syncAllDayFields() {
   el.eventDuration.disabled = allDay;
 }
 
+function makeDoneCheckbox(item) {
+  const label = document.createElement('label');
+  label.className = 'done-check';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = Boolean(item.done);
+  box.setAttribute('aria-label', t('board.doneAria', { name: item.name }));
+  box.addEventListener('change', () => setTaskDone(item.id, box.checked));
+  label.append(box);
+  return label;
+}
+
+function setTaskDone(id, done) {
+  const task = tasks.find((x) => x.id === id);
+  if (!task) return;
+  task.done = done;
+  save();
+  render();
+}
+
+function renderDoneList() {
+  el.doneList.textContent = '';
+  const done = tasks
+    .filter((task) => task.done && task.placedAt !== null)
+    .sort((a, b) => (a.placedAt.date < b.placedAt.date ? -1
+      : a.placedAt.date > b.placedAt.date ? 1 : a.placedAt.start - b.placedAt.start));
+  el.doneEmpty.hidden = done.length > 0;
+  done.forEach((task) => {
+    const item = document.createElement('li');
+    item.className = 'done-item';
+    item.append(
+      makeSpan(task.name, 'done-name'),
+      makeSpan(`${labelOfKey(task.placedAt.date)} ${t('time.range', {
+        from: formatTime(task.placedAt.start),
+        to: formatTime(task.placedAt.start + task.duration),
+      })}`, 'placed-meta')
+    );
+    el.doneList.append(item);
+  });
+}
+
 function makeBoardCell(item, span) {
   const cell = document.createElement('td');
   cell.className = 'placed-cell' + (item.date === todayKey() ? ' is-today' : '');
@@ -1156,7 +1203,7 @@ function makeBoardCell(item, span) {
 
   const isPlainEvent = item.kind === 'event' && !item.priority;
   const block = document.createElement('div');
-  block.className = 'placed' + (isPlainEvent ? ' is-event' : '');
+  block.className = 'placed' + (isPlainEvent ? ' is-event' : '') + (item.done ? ' is-done' : '');
   block.dataset.itemId = item.id;
 
   const body = document.createElement('div');
@@ -1194,6 +1241,7 @@ function makeBoardCell(item, span) {
   }
 
   block.append(makeDragHandle(item.kind, item.id, item.name, block), body, actions);
+  if (item.kind === 'task') block.append(makeDoneCheckbox(item));
   cell.append(block);
   return cell;
 }
