@@ -1,4 +1,6 @@
 :root {
+  --ok: #2e9e5b;
+  --ok-soft: #b9ebc9;
   --bg: #f4f6fb;
   --surface: #ffffff;
   --text: #1c2230;
@@ -24,7 +26,7 @@
     --danger: #ff8b80;
     --danger-soft: #3a2523;
     --ok: #5fc88a;
-    --ok-soft: #1f3a2b;
+    --ok-soft: #245a3a;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .28);
   }
 }
@@ -355,13 +357,13 @@ body.is-dragging { cursor: grabbing; user-select: none; }
   cursor: grab;
 }
 .placed { position: relative; padding-right: 32px; }
-.placed.is-done { background: var(--ok-soft, #e3f5e8); border-color: var(--ok, #2e9e5b); }
+.placed.is-done { background: var(--ok-soft); border-color: var(--ok); }
 .placed.is-done strong { text-decoration: line-through; opacity: .75; }
 .done-check { position: absolute; top: 6px; right: 8px; display: inline-flex; cursor: pointer; }
-.done-check input { width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--ok, #2e9e5b); }
+.done-check input { width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--ok); }
 .done-heading { margin: 16px 0 6px; font-size: .95rem; }
 .done-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.done-item { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 6px 10px; background: var(--ok-soft, #e3f5e8); border: 1px solid var(--ok, #2e9e5b); border-radius: 8px; }
+.done-item { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 6px 10px; background: var(--ok-soft); border: 1px solid var(--ok); border-radius: 8px; }
 .done-name { font-weight: 600; }
 .placed.is-event { background: var(--bg); border-color: var(--muted); border-style: dashed; }
 .placed.dragging { opacity: .45; }
@@ -547,7 +549,7 @@ body.is-dragging { cursor: grabbing; user-select: none; }
   border-left: 3px solid var(--accent);
   border-radius: 6px;
 }
-.allday-chip.is-done { background: var(--ok-soft, #e3f5e8); border-color: var(--ok, #2e9e5b); }
+.allday-chip.is-done { background: var(--ok-soft); border-color: var(--ok); }
 .allday-chip.is-done .allday-name { text-decoration: line-through; opacity: .75; }
 .allday-chip .done-check { position: static; }
 .allday-chip .done-check input { width: 14px; height: 14px; }
@@ -661,3 +663,8 @@ body.is-dragging { cursor: grabbing; user-select: none; }
 .field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hint-text { margin: 4px 0 0; font-size: .72rem; line-height: 1.5; color: var(--muted); }
 .conflict .error { margin: 8px 0 0; }
+
+/* 完了（チェック済み）の項目は、セルや行ごと緑の背景にする */
+.board td.placed-cell:has(.placed.is-done),
+.schedule tr.is-done td { background: var(--ok-soft); }
+.calendar-chip.is-done { background: var(--ok-soft); border-color: var(--ok); border-left-color: var(--ok); }
