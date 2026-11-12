@@ -828,7 +828,7 @@ function renderTable(plan) {
 /* 優先順位と所要時間をその場で編集でき、週間スケジュールへドラッグできる行 */
 function makeTaskRow(task, timeLabel, unscheduled) {
   const row = document.createElement('tr');
-  if (unscheduled) row.className = 'unscheduled';
+  row.className = (unscheduled ? 'unscheduled' : '') + (task.done ? ' is-done' : '');
   row.dataset.taskId = task.id;
 
   const handleCell = document.createElement('td');
@@ -1524,7 +1524,8 @@ function makeCalendarCell(date, monthIndex, itemsByDate) {
     const isAllDay = item.start === null;
     chip.className = 'calendar-chip' +
       (item.kind === 'event' && !item.priority ? ' is-event' : '') +
-      (isAllDay ? ' is-allday' : '');
+      (isAllDay ? ' is-allday' : '') +
+      (item.done ? ' is-done' : '');
     chip.textContent = isAllDay
       ? `${t('board.allDay')} ${item.name}`
       : `${formatTime(item.start)} ${item.name}`;
